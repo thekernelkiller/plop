@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Link-Folders — Bookmark Management & Sharing</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  
+  <!-- Popover Polyfill for older browsers -->
+  <script type="module">
+    if (!HTMLElement.prototype.hasOwnProperty("popover")) {
+      await import("https://unpkg.com/@oddbird/popover-polyfill@latest");
+    }
+  </script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar / Left Panel -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="workspace-info">
+          <div class="workspace-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M3 7C3 5.89543 3.89543 5 5 5H10L12 7H19C20.1046 7 21 7.89543 21 9V17C21 18.1046 20.1046 19 19 19H5C3.89543 19 3 18.1046 3 17V7Z" fill="currentColor" fill-opacity="0.2" stroke="currentColor" stroke-width="2"/>
+            </svg>
+          </div>
+          <div class="workspace-meta">
+            <h1 class="workspace-title" id="workspace-title-display">bookmarks</h1>
+            <span class="workspace-author" id="workspace-author-display">A Folder from guest</span>
+          </div>
+        </div>
+        <button id="rename-workspace-btn" class="icon-btn" title="Rename Workspace">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Scrollable Tree Container -->
+      <div class="tree-scroll-container">
+        <div id="tree-root" class="tree-nodes">
+          <!-- Dynamically populated tree items will go here -->
+          <div class="loading-spinner">
+            <div class="spinner"></div>
+            <span>Loading your folders...</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sidebar Footer Operations -->
+      <div class="sidebar-footer">
+        <div class="footer-actions">
+          <button id="add-folder-btn" class="footer-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2zM12 11v6M9 14h6"/>
+            </svg>
+            <span>New Folder</span>
+          </button>
+          <button id="add-link-btn" class="footer-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+            </svg>
+            <span>Add Link</span>
+          </button>
+        </div>
+        
+        <div class="footer-utility">
+          <button id="share-settings-btn" class="utility-btn" title="Sharing settings">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+            </svg>
+            <span>Share Folder</span>
+          </button>
+          
+          <button id="account-btn" class="utility-btn" title="Account settings">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+            <span id="account-btn-label">Sign In</span>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Viewport / Right Panel -->
+    <main class="main-viewport">
+      <div id="empty-state" class="viewport-card empty-card">
+        <div class="empty-illustrations">
+          <div class="folder-stack">
+            <div class="illus-folder f1"></div>
+            <div class="illus-folder f2"></div>
+            <div class="illus-folder f3"></div>
+          </div>
+        </div>
+        <h2 id="empty-title">Welcome to Link-Folders</h2>
+        <p id="empty-desc">Create folders, nest them, and add URLs. Toggle sharing to create a beautiful, public read-only link-tree like Arc browser's shared folders.</p>
+        <div class="quick-tips">
+          <div class="tip-item">
+            <strong>💡 Reorder:</strong> Drag and drop any folder or link to organize it.
+          </div>
+          <div class="tip-item">
+            <strong>🔗 Share:</strong> Get a unique URL that anyone can view or clone.
+          </div>
+        </div>
+      </div>
+
+      <div id="preview-state" class="viewport-card preview-card hidden">
+        <div class="preview-header">
+          <button id="preview-back-btn" class="icon-btn back-btn" title="Back to List">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="19" y1="12" x2="5" y2="12"/>
+              <polyline points="12 19 5 12 12 5"/>
+            </svg>
+          </button>
+          <div class="preview-title-bar">
+            <img id="active-favicon" class="active-favicon" src="" alt="">
+            <div class="active-meta">
+              <h2 id="active-title">Loading Page...</h2>
+              <span id="active-url">https://example.com</span>
+            </div>
+          </div>
+          <div class="preview-actions">
+            <a id="active-link-open" href="#" target="_blank" class="action-btn-primary">
+              <span>Open Link</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/>
+              </svg>
+            </a>
+          </div>
+        </div>
+        <div class="preview-content">
+          <!-- Embedded WebView Frame -->
+          <iframe id="preview-iframe" src="" sandbox="allow-scripts allow-same-origin allow-popups allow-forms"></iframe>
+          
+          <!-- Embedded block warning overlay -->
+          <div id="iframe-blocked-warning" class="iframe-warning hidden">
+            <div class="warning-icon">🔒</div>
+            <h3>Embedding Blocked by Site</h3>
+            <p>This site protects itself by preventing display inside other applications. You can open it securely in a new browser tab.</p>
+            <a id="active-link-open-warning" href="#" target="_blank" class="warning-btn">Open in New Tab</a>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Shared Custom Context Menu using Popover API -->
+  <div id="item-context-menu" popover="auto" class="context-menu">
+    <button class="menu-item" id="ctx-rename">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+      </svg>
+      <span>Rename</span>
+    </button>
+    <button class="menu-item danger" id="ctx-delete">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="3 6 5 6 21 6"/>
+        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+      </svg>
+      <span>Delete</span>
+    </button>
+  </div>
+
+  <!-- Modals using Native Dialog API -->
+  
+  <!-- Add/Edit Link Dialog -->
+  <dialog id="link-dialog" class="custom-dialog">
+    <form method="dialog">
+      <h3 id="link-dialog-title">Add Link</h3>
+      
+      <div class="form-group">
+        <label for="link-url-input">URL</label>
+        <input type="url" id="link-url-input" placeholder="https://example.com" required autocomplete="off">
+      </div>
+      
+      <div class="form-group">
+        <label for="link-title-input">Title (Optional)</label>
+        <input type="text" id="link-title-input" placeholder="My Awesome Website" autocomplete="off">
+      </div>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary" id="link-cancel-btn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="link-save-btn">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Add/Edit Folder Dialog -->
+  <dialog id="folder-dialog" class="custom-dialog">
+    <form method="dialog">
+      <h3 id="folder-dialog-title">New Folder</h3>
+      
+      <div class="form-group">
+        <label for="folder-title-input">Folder Name</label>
+        <input type="text" id="folder-title-input" placeholder="Tech Stuff" required autocomplete="off">
+      </div>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary" id="folder-cancel-btn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="folder-save-btn">Create</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Rename Workspace Dialog -->
+  <dialog id="workspace-dialog" class="custom-dialog">
+    <form method="dialog">
+      <h3>Workspace Settings</h3>
+      
+      <div class="form-group">
+        <label for="workspace-title-input">Workspace Title</label>
+        <input type="text" id="workspace-title-input" required autocomplete="off">
+      </div>
+
+      <div class="form-group">
+        <label for="workspace-author-input">Your Name (Author)</label>
+        <input type="text" id="workspace-author-input" placeholder="Vivek" required autocomplete="off">
+      </div>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary" id="workspace-cancel-btn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="workspace-save-btn">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Share Workspace Dialog -->
+  <dialog id="share-dialog" class="custom-dialog">
+    <div class="dialog-content">
+      <h3>Share Settings</h3>
+      <p class="dialog-desc">Make your workspace public to share a read-only visual clone with others.</p>
+      
+      <div class="share-toggle-container">
+        <label class="switch-label">
+          <span>Public Sharing</span>
+          <div class="switch">
+            <input type="checkbox" id="share-toggle">
+            <span class="slider"></span>
+          </div>
+        </label>
+      </div>
+
+      <div id="share-link-section" class="share-link-section hidden">
+        <label for="share-link-input">Public Share Link</label>
+        <div class="copy-input-group">
+          <input type="text" id="share-link-input" readonly value="">
+          <button id="copy-link-btn" class="btn btn-primary">Copy</button>
+        </div>
+        <span class="share-hint">Anyone with this link can view and clone your folders in their workspace.</span>
+      </div>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary" id="share-close-btn">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Account Settings Dialog -->
+  <dialog id="account-dialog" class="custom-dialog">
+    <div class="dialog-content">
+      <h3>Account Settings</h3>
+      
+      <div id="account-logged-in" class="account-state hidden">
+        <div class="user-profile">
+          <img id="user-photo" src="" alt="Profile Picture" class="profile-pic hidden">
+          <div class="profile-meta">
+            <h4 id="user-name">Authenticated User</h4>
+            <span id="user-email">email@domain.com</span>
+          </div>
+        </div>
+        <p class="account-desc">Your workspaces are securely synced to your Google Account.</p>
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-secondary" id="sign-out-btn">Sign Out</button>
+          <button type="button" class="btn btn-primary" id="account-close-btn-1">Close</button>
+        </div>
+      </div>
+
+      <div id="account-anonymous" class="account-state">
+        <p class="account-desc">You are currently using a **temporary guest account**. Your data is saved locally on this browser but will be lost if you clear browser data.</p>
+        
+        <div class="google-sign-in-box">
+          <button id="google-login-btn" class="google-btn">
+            <svg class="google-icon" viewBox="0 0 24 24" width="18" height="18" xmlns="http://www.w3.org/2000/svg">
+              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l3.66-2.85z" fill="#FBBC05"/>
+              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+            </svg>
+            <span>Link with Google</span>
+          </button>
+        </div>
+        
+        <span class="share-hint">Linking keeps your workspace safe forever and allows sync across devices.</span>
+        
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-secondary" id="account-close-btn-2">Close</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Load App Script -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>

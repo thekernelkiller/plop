@@ -1,0 +1,109 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Check if the user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Validate string constraints
+    function isValidString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    // Validate URL format if present
+    function isValidUrl(url) {
+      return url is string && url.size() <= 500 && (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    // Validate Workspace Document structure
+    function isValidWorkspace(data) {
+      return data.keys().hasAll(['id', 'ownerId', 'title', 'authorName', 'sharing']) &&
+             data.keys().hasOnly(['id', 'ownerId', 'title', 'authorName', 'sharing', 'createdAt', 'childrenIds']) &&
+             isValidString(data.id, 36, 36) &&
+             isValidString(data.ownerId, 20, 100) &&
+             isValidString(data.title, 1, 50) &&
+             isValidString(data.authorName, 1, 50) &&
+             data.sharing in ['private', 'public'] &&
+             (!('childrenIds' in data) || (data.childrenIds is list && data.childrenIds.size() <= 200));
+    }
+
+    // Validate LinkItem Document structure
+    function isValidLinkItem(data) {
+      return data.keys().hasAll(['id', 'parentId', 'type', 'title', 'createdAt']) &&
+             data.keys().hasOnly(['id', 'parentId', 'type', 'title', 'url', 'childrenIds', 'createdAt']) &&
+             isValidString(data.id, 36, 36) &&
+             isValidString(data.parentId, 1, 50) &&
+             data.type in ['folder', 'link'] &&
+             isValidString(data.title, 1, 100) &&
+             data.createdAt is number &&
+             (!('url' in data) || isValidUrl(data.url)) &&
+             (!('childrenIds' in data) || (data.childrenIds is list && data.childrenIds.size() <= 200));
+    }
+
+    // Default deny for all collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Workspace Documents
+    match /workspaces/{workspaceId} {
+      
+      // Allow read (get & list) if user is owner, or if sharing is public
+      allow read: if isAuthenticated() && (
+        resource == null || 
+        resource.data.ownerId == request.auth.uid || 
+        resource.data.sharing == 'public'
+      );
+      
+      allow create: if isAuthenticated() && 
+                       request.resource.data.ownerId == request.auth.uid && 
+                       isValidWorkspace(request.resource.data) &&
+                       request.resource.data.createdAt == request.time;
+                       
+      allow update: if isAuthenticated() && 
+                       resource.data.ownerId == request.auth.uid &&
+                       request.resource.data.ownerId == request.auth.uid &&
+                       request.resource.data.id == resource.data.id &&
+                       isValidWorkspace(request.resource.data) &&
+                       (!('createdAt' in request.resource.data) || request.resource.data.createdAt == resource.data.createdAt);
+                       
+      allow delete: if isAuthenticated() && 
+                       resource.data.ownerId == request.auth.uid;
+
+      // Link Item Subcollections inside workspaces
+      match /items/{itemId} {
+        
+        // Helper to check if parent workspace exists and is readable by this user
+        function isParentWorkspaceReadable() {
+          let path = /databases/$(database)/documents/workspaces/$(workspaceId);
+          return exists(path) && (
+            get(path).data.ownerId == request.auth.uid || 
+            get(path).data.sharing == 'public'
+          );
+        }
+
+        // Helper to check if parent workspace is owned by this user
+        function isParentWorkspaceOwner() {
+          let path = /databases/$(database)/documents/workspaces/$(workspaceId);
+          return exists(path) && get(path).data.ownerId == request.auth.uid;
+        }
+
+        allow read: if isAuthenticated() && isParentWorkspaceReadable();
+        
+        allow create: if isAuthenticated() && 
+                         isParentWorkspaceOwner() && 
+                         isValidLinkItem(request.resource.data);
+                         
+        allow update: if isAuthenticated() && 
+                         isParentWorkspaceOwner() && 
+                         isValidLinkItem(request.resource.data) &&
+                         request.resource.data.id == resource.data.id;
+                         
+        allow delete: if isAuthenticated() && 
+                         isParentWorkspaceOwner();
+      }
+    }
+  }
+}
