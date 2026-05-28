@@ -162,9 +162,8 @@ body {
 }
 
 .folder-children {
-  margin-left: 18px;
-  padding-left: 6px;
-  border-left: 1.5px solid rgba(28, 25, 54, 0.05); /* Scope connector line */
+  margin-left: 22px; /* Increased margin for clear distinction */
+  padding-left: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -269,6 +268,12 @@ body {
 
 .folder-toggle.collapsed {
   transform: rotate(-90deg);
+}
+
+.folder-toggle-spacer {
+  display: inline-block;
+  width: 16px; /* Same width as .folder-toggle */
+  flex-shrink: 0;
 }
 
 .folder-icon {
@@ -594,6 +599,7 @@ body {
 
 /* Resilient Context Menu (Popover) */
 .context-menu {
+  display: none; /* Force hide when closed to prevent stray menu items */
   position: fixed;
   inset: auto; /* CRITICAL: Resets browser Popover default inset: 0 centering */
   background: #FFFFFF;
@@ -607,7 +613,7 @@ body {
 }
 
 .context-menu:popover-open {
-  display: flex;
+  display: flex !important;
   flex-direction: column;
 }
 

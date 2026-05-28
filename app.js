@@ -37,6 +37,7 @@ let unsubItems = null;
 
 let selectedItemId = null; // Currently highlighted item in sidebar
 let contextMenuTargetId = null; // Item ID target of the context menu
+let linkDialogParentId = "root"; // Parent ID target for the link creation modal
 
 // DOM Elements
 const treeRoot = document.getElementById("tree-root");
@@ -342,6 +343,11 @@ function renderNode(item, depth, isOwner) {
     `;
     content.appendChild(icon);
   } else {
+    // Spacer for toggle alignment (Arc-style vertical icon alignment)
+    const spacer = document.createElement("span");
+    spacer.className = "folder-toggle-spacer";
+    content.appendChild(spacer);
+
     // Link type - fetch favicon
     const favicon = document.createElement("img");
     favicon.className = "link-favicon";
@@ -522,7 +528,7 @@ function setupDragAndDropEvents(itemEl) {
 
     const dragTarget = workspaceItems[itemEl.dataset.id];
 
-    if (dragTarget.type === "folder" && relativeY > rect.height * 0.25 && relativeY < rect.height * 0.75) {
+    if (dragTarget.type === "folder" && relativeY > rect.height * 0.15 && relativeY < rect.height * 0.85) {
       // Dragging inside folder
       itemEl.classList.add("drag-over-inside");
       e.dataTransfer.dropEffect = "copy";
@@ -572,7 +578,7 @@ function setupDragAndDropEvents(itemEl) {
     }
 
     // 2. Process Drop inside target folder
-    if (targetItem.type === "folder" && relativeY > rect.height * 0.25 && relativeY < rect.height * 0.75) {
+    if (targetItem.type === "folder" && relativeY > rect.height * 0.15 && relativeY < rect.height * 0.85) {
       // Set parentId of source to targetFolder ID
       batch.update(doc(db, "workspaces", activeWorkspaceId, "items", sourceId), {
         parentId: targetId
@@ -642,6 +648,7 @@ document.getElementById("add-folder-btn").addEventListener("click", () => {
 
 document.getElementById("add-link-btn").addEventListener("click", () => {
   if (!activeWorkspaceId) return;
+  linkDialogParentId = "root"; // Reset to root level
   document.getElementById("link-dialog-title").textContent = "Add Link";
   document.getElementById("link-url-input").value = "";
   document.getElementById("link-title-input").value = "";
@@ -725,7 +732,7 @@ linkDialog.querySelector("form").addEventListener("submit", async (e) => {
     const linkId = generateUUID();
     const linkDoc = {
       id: linkId,
-      parentId: "root",
+      parentId: linkDialogParentId,
       type: "link",
       title: title,
       url: url,
@@ -735,11 +742,21 @@ linkDialog.querySelector("form").addEventListener("submit", async (e) => {
     const batch = writeBatch(db);
     batch.set(doc(db, "workspaces", activeWorkspaceId, "items", linkId), linkDoc);
     
-    // Add to workspace root childrenIds list
-    const currentRootChildren = [...(activeWorkspace.childrenIds || []), linkId];
-    batch.update(doc(db, "workspaces", activeWorkspaceId), {
-      childrenIds: currentRootChildren
-    });
+    // Add to parent childrenIds list
+    if (linkDialogParentId === "root") {
+      const currentRootChildren = [...(activeWorkspace.childrenIds || []), linkId];
+      batch.update(doc(db, "workspaces", activeWorkspaceId), {
+        childrenIds: currentRootChildren
+      });
+    } else {
+      const parentFolder = workspaceItems[linkDialogParentId];
+      if (parentFolder) {
+        const currentFolderChildren = [...(parentFolder.childrenIds || []), linkId];
+        batch.update(doc(db, "workspaces", activeWorkspaceId, "items", linkDialogParentId), {
+          childrenIds: currentFolderChildren
+        });
+      }
+    }
     
     await batch.commit();
     linkDialog.close();
@@ -798,12 +815,36 @@ document.getElementById("copy-link-btn").addEventListener("click", () => {
 function showContextMenu(itemId, clientX, clientY) {
   contextMenuTargetId = itemId;
   
+  // Enforce context options depending on target item type (e.g. Add Link only for folders)
+  const item = workspaceItems[itemId];
+  const addLinkBtn = document.getElementById("ctx-add-link");
+  if (addLinkBtn) {
+    if (item && item.type === "folder") {
+      addLinkBtn.classList.remove("hidden");
+    } else {
+      addLinkBtn.classList.add("hidden");
+    }
+  }
+  
   contextMenu.style.position = "fixed";
   contextMenu.style.top = `${clientY}px`;
   contextMenu.style.left = `${clientX}px`;
   
   contextMenu.showPopover();
 }
+
+// Add Link from Context Menu
+document.getElementById("ctx-add-link").addEventListener("click", () => {
+  contextMenu.hidePopover();
+  const folder = workspaceItems[contextMenuTargetId];
+  if (!folder) return;
+  
+  linkDialogParentId = folder.id;
+  document.getElementById("link-dialog-title").textContent = `Add Link in ${folder.title}`;
+  document.getElementById("link-url-input").value = "";
+  document.getElementById("link-title-input").value = "";
+  linkDialog.showModal();
+});
 
 // Rename selected item
 document.getElementById("ctx-rename").addEventListener("click", () => {
@@ -1048,3 +1089,60 @@ function isDescendantOf(draggedId, targetId) {
   }
   return false;
 }
+
+// Paste link directly inside selected folder
+window.addEventListener("paste", async (e) => {
+  // If we are actively typing in an input/textarea, let the default paste happen
+  if (document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "TEXTAREA") {
+    return;
+  }
+  
+  if (!selectedItemId || !activeWorkspaceId) return;
+  
+  const targetFolder = workspaceItems[selectedItemId];
+  if (!targetFolder || targetFolder.type !== "folder") return;
+  
+  const pastedText = e.clipboardData.getData("text")?.trim();
+  if (!pastedText) return;
+  
+  // Validate if the pasted text is a URL
+  const urlRegex = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/i;
+  if (!urlRegex.test(pastedText)) {
+    return; // Not a URL, ignore
+  }
+  
+  e.preventDefault();
+  
+  let url = pastedText;
+  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    url = "https://" + url;
+  }
+  
+  const title = getDomain(url);
+  
+  try {
+    const linkId = generateUUID();
+    const linkDoc = {
+      id: linkId,
+      parentId: targetFolder.id,
+      type: "link",
+      title: title,
+      url: url,
+      createdAt: Date.now()
+    };
+    
+    const batch = writeBatch(db);
+    batch.set(doc(db, "workspaces", activeWorkspaceId, "items", linkId), linkDoc);
+    
+    const currentFolderChildren = [...(targetFolder.childrenIds || []), linkId];
+    batch.update(doc(db, "workspaces", activeWorkspaceId, "items", targetFolder.id), {
+      childrenIds: currentFolderChildren
+    });
+    
+    await batch.commit();
+    console.log(`Pasted link successfully inside folder ${targetFolder.title}`);
+  } catch (error) {
+    console.error("Paste link error:", error);
+    alert(`Failed to paste link: ${error.message}`);
+  }
+});
