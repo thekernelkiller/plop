@@ -187,7 +187,6 @@ function loadWorkspace(wsId) {
     selectedThemeColor = activeWorkspace.themeColor || "purple";
 
     document.getElementById("workspace-title-display").textContent  = activeWorkspace.title;
-    document.getElementById("workspace-author-display").textContent = `A folder from ${activeWorkspace.authorName || "guest"}`;
 
     syncThemeColorPicker(selectedThemeColor);
     renderTree(true);
@@ -230,7 +229,6 @@ async function loadSharedFolderView(folderId) {
 
   applyTheme(sharedFolderData.themeColor || "purple");
   document.getElementById("workspace-title-display").textContent  = sharedFolderData.folderTitle;
-  document.getElementById("workspace-author-display").textContent = `Shared by ${sharedFolderData.authorName || "someone"}`;
 
   // Hide owner-only controls
   document.getElementById("add-folder-btn")?.classList.add("hidden");
