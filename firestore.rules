@@ -2,106 +2,168 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Check if the user is authenticated
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    // Validate string constraints
     function isValidString(val, minLen, maxLen) {
       return val is string && val.size() >= minLen && val.size() <= maxLen;
     }
 
-    // Validate URL format if present
     function isValidUrl(url) {
-      return url is string && url.size() <= 500 && (url.matches("^https://.*") || url.matches("^http://.*"));
+      return url is string && url.size() <= 500 &&
+        (url.matches("^https://.*") || url.matches("^http://.*"));
     }
 
-    // Validate Workspace Document structure
+    // ── Workspace (no sharing field — sharing lives on sharedFolders collection) ──
+
     function isValidWorkspace(data) {
-      return data.keys().hasAll(['id', 'ownerId', 'title', 'authorName', 'sharing']) &&
-             data.keys().hasOnly(['id', 'ownerId', 'title', 'authorName', 'sharing', 'createdAt', 'childrenIds']) &&
+      return data.keys().hasAll(['id', 'ownerId', 'title', 'authorName']) &&
+             data.keys().hasOnly(['id', 'ownerId', 'title', 'authorName',
+                                  'themeColor', 'childrenIds', 'createdAt']) &&
              isValidString(data.id, 36, 36) &&
-             isValidString(data.ownerId, 20, 100) &&
+             isValidString(data.ownerId, 20, 128) &&
              isValidString(data.title, 1, 50) &&
-             isValidString(data.authorName, 1, 50) &&
-             data.sharing in ['private', 'public'] &&
-             (!('childrenIds' in data) || (data.childrenIds is list && data.childrenIds.size() <= 200));
+             isValidString(data.authorName, 0, 100) &&
+             (!('childrenIds' in data) ||
+              (data.childrenIds is list && data.childrenIds.size() <= 500)) &&
+             (!('themeColor' in data) || isValidString(data.themeColor, 1, 30));
     }
 
-    // Validate LinkItem Document structure
+    function isValidWorkspaceUpdate(data) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return !changed.hasAny(['ownerId', 'id', 'createdAt']) &&
+             changed.hasOnly(['title', 'authorName', 'childrenIds', 'themeColor']) &&
+             (!changed.hasAll(['title'])      || isValidString(data.title, 1, 50)) &&
+             (!changed.hasAll(['authorName']) || isValidString(data.authorName, 0, 100)) &&
+             (!changed.hasAll(['themeColor']) || isValidString(data.themeColor, 1, 30)) &&
+             (!changed.hasAll(['childrenIds']) ||
+              (data.childrenIds is list && data.childrenIds.size() <= 500));
+    }
+
+    // ── Items ──
+
     function isValidLinkItem(data) {
       return data.keys().hasAll(['id', 'parentId', 'type', 'title', 'createdAt']) &&
-             data.keys().hasOnly(['id', 'parentId', 'type', 'title', 'url', 'childrenIds', 'createdAt']) &&
+             data.keys().hasOnly(['id', 'parentId', 'type', 'title', 'url',
+                                  'childrenIds', 'createdAt', 'sharedVia']) &&
              isValidString(data.id, 36, 36) &&
-             isValidString(data.parentId, 1, 50) &&
+             isValidString(data.parentId, 1, 100) &&
              data.type in ['folder', 'link'] &&
-             isValidString(data.title, 1, 100) &&
+             isValidString(data.title, 1, 200) &&
              data.createdAt is number &&
-             (!('url' in data) || isValidUrl(data.url)) &&
-             (!('childrenIds' in data) || (data.childrenIds is list && data.childrenIds.size() <= 200));
+             (!('url' in data)      || isValidUrl(data.url)) &&
+             (!('childrenIds' in data) ||
+              (data.childrenIds is list && data.childrenIds.size() <= 500)) &&
+             (!('sharedVia' in data) || isValidString(data.sharedVia, 36, 36));
     }
 
-    // Default deny for all collections
+    function isValidLinkItemUpdate(data) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return !changed.hasAny(['id', 'createdAt', 'type']) &&
+             changed.hasOnly(['parentId', 'title', 'url', 'childrenIds', 'sharedVia']) &&
+             (!changed.hasAll(['title'])    || isValidString(data.title, 1, 200)) &&
+             (!changed.hasAll(['parentId']) || isValidString(data.parentId, 1, 100)) &&
+             (!changed.hasAll(['url']) ||
+              !('url' in data) || isValidUrl(data.url)) &&
+             (!changed.hasAll(['childrenIds']) ||
+              !('childrenIds' in data) ||
+              (data.childrenIds is list && data.childrenIds.size() <= 500)) &&
+             (!changed.hasAll(['sharedVia']) ||
+              !('sharedVia' in data) ||
+              isValidString(data.sharedVia, 36, 36));
+    }
+
+    // ── Shared Folders Registry ──
+
+    function isValidSharedFolder(data) {
+      return data.keys().hasAll(['workspaceId', 'ownerId',
+                                  'folderTitle', 'authorName', 'sharedAt']) &&
+             data.keys().hasOnly(['workspaceId', 'ownerId', 'folderTitle',
+                                  'authorName', 'themeColor', 'sharedAt']) &&
+             isValidString(data.workspaceId, 36, 36) &&
+             isValidString(data.ownerId, 20, 128) &&
+             isValidString(data.folderTitle, 1, 200) &&
+             isValidString(data.authorName, 0, 100) &&
+             (!('themeColor' in data) || isValidString(data.themeColor, 1, 30));
+    }
+
+    // ══════════════════════════════════════
+    // Default: deny everything
+    // ══════════════════════════════════════
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Workspace Documents
-    match /workspaces/{workspaceId} {
-      
-      // Allow read (get & list) if user is owner, or if sharing is public
-      allow read: if isAuthenticated() && (
-        resource == null || 
-        resource.data.ownerId == request.auth.uid || 
-        resource.data.sharing == 'public'
-      );
-      
-      allow create: if isAuthenticated() && 
-                       request.resource.data.ownerId == request.auth.uid && 
-                       isValidWorkspace(request.resource.data) &&
-                       request.resource.data.createdAt == request.time;
-                       
-      allow update: if isAuthenticated() && 
+    // ══════════════════════════════════════
+    // /sharedFolders/{folderId}
+    // Public share registry — UUID provides security through obscurity
+    // ══════════════════════════════════════
+    match /sharedFolders/{folderId} {
+      allow read: if true;
+
+      allow create: if isAuthenticated() &&
+                       request.resource.data.ownerId == request.auth.uid &&
+                       isValidSharedFolder(request.resource.data) &&
+                       request.resource.data.sharedAt == request.time;
+
+      allow update: if isAuthenticated() &&
                        resource.data.ownerId == request.auth.uid &&
                        request.resource.data.ownerId == request.auth.uid &&
-                       request.resource.data.id == resource.data.id &&
+                       isValidSharedFolder(request.resource.data);
+
+      allow delete: if isAuthenticated() &&
+                       resource.data.ownerId == request.auth.uid;
+    }
+
+    // ══════════════════════════════════════
+    // /workspaces/{workspaceId}
+    // Owner-only — sharing lives in sharedFolders, not here
+    // ══════════════════════════════════════
+    match /workspaces/{workspaceId} {
+
+      allow read: if isAuthenticated() &&
+                     resource.data.ownerId == request.auth.uid;
+
+      allow create: if isAuthenticated() &&
+                       request.resource.data.ownerId == request.auth.uid &&
                        isValidWorkspace(request.resource.data) &&
-                       (!('createdAt' in request.resource.data) || request.resource.data.createdAt == resource.data.createdAt);
-                       
-      allow delete: if isAuthenticated() && 
+                       request.resource.data.createdAt == request.time;
+
+      allow update: if isAuthenticated() &&
+                       resource.data.ownerId == request.auth.uid &&
+                       isValidWorkspaceUpdate(request.resource.data);
+
+      allow delete: if isAuthenticated() &&
                        resource.data.ownerId == request.auth.uid;
 
-      // Link Item Subcollections inside workspaces
+      // ── /workspaces/{workspaceId}/items/{itemId} ──
       match /items/{itemId} {
-        
-        // Helper to check if parent workspace exists and is readable by this user
-        function isParentWorkspaceReadable() {
-          let path = /databases/$(database)/documents/workspaces/$(workspaceId);
-          return exists(path) && (
-            get(path).data.ownerId == request.auth.uid || 
-            get(path).data.sharing == 'public'
-          );
-        }
 
-        // Helper to check if parent workspace is owned by this user
         function isParentWorkspaceOwner() {
           let path = /databases/$(database)/documents/workspaces/$(workspaceId);
           return exists(path) && get(path).data.ownerId == request.auth.uid;
         }
 
-        allow read: if isAuthenticated() && isParentWorkspaceReadable();
-        
-        allow create: if isAuthenticated() && 
-                         isParentWorkspaceOwner() && 
+        // Readable if:
+        //   (a) you own the workspace, OR
+        //   (b) the item carries a sharedVia pointing to a live sharedFolders entry
+        allow read: if isAuthenticated() && (
+          isParentWorkspaceOwner() ||
+          ('sharedVia' in resource.data &&
+           exists(/databases/$(database)/documents/sharedFolders/$(resource.data.sharedVia)))
+        );
+
+        allow create: if isAuthenticated() &&
+                         isParentWorkspaceOwner() &&
                          isValidLinkItem(request.resource.data);
-                         
-        allow update: if isAuthenticated() && 
-                         isParentWorkspaceOwner() && 
-                         isValidLinkItem(request.resource.data) &&
+
+        allow update: if isAuthenticated() &&
+                         isParentWorkspaceOwner() &&
+                         isValidLinkItemUpdate(request.resource.data) &&
                          request.resource.data.id == resource.data.id;
-                         
-        allow delete: if isAuthenticated() && 
+
+        allow delete: if isAuthenticated() &&
                          isParentWorkspaceOwner();
       }
     }

@@ -63,6 +63,8 @@ body {
   height: 100%;
   overflow: hidden;
   padding: 24px 16px;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .sidebar-header {
@@ -162,11 +164,11 @@ body {
 }
 
 .folder-children {
-  margin-left: 22px; /* Increased margin for clear distinction */
+  margin-left: 0; /* Remove compounding margin - depth-based padding is handled in JS */
   padding-left: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px; /* Tighter gap for compact Arc feel */
   transition: max-height 0.3s ease-out;
   overflow: hidden;
 }
@@ -176,13 +178,14 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 10px;
-  border-radius: 10px;
+  padding: 4px 8px; /* Balanced padding */
+  height: 32px; /* Breathable, readable row height */
+  border-radius: 8px; /* Clean rounded corners */
   cursor: pointer;
   user-select: none;
-  font-size: 14.5px;
+  font-size: 14px; /* Highly readable font size */
   font-weight: 500;
-  transition: background-color 0.2s ease, transform 0.1s ease;
+  transition: background-color 0.15s ease;
   position: relative;
 }
 
@@ -199,9 +202,10 @@ body {
 .tree-item-content {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px; /* Snug gap */
   flex-grow: 1;
   min-width: 0;
+  height: 100%;
 }
 
 .tree-item-title {
@@ -215,7 +219,7 @@ body {
   align-items: center;
   gap: 4px;
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.15s ease;
 }
 
 .tree-item:hover .tree-item-actions {
@@ -227,12 +231,13 @@ body {
   border: none;
   color: var(--color-text-muted);
   cursor: pointer;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 5px;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .item-btn:hover {
@@ -246,12 +251,37 @@ body {
   transform: scale(0.98);
 }
 
-.drag-over {
-  border-bottom: 2.5px solid var(--color-primary);
+/* Floating drop indicator line (replaces border-based approach) */
+.drop-indicator {
+  position: fixed;
+  height: 2px;
+  background: var(--color-primary);
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 9999;
+  transition: top 0.04s ease, left 0.04s ease, width 0.04s ease;
 }
 
+.drop-indicator::before,
+.drop-indicator::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 6px;
+  height: 6px;
+  background: var(--color-primary);
+  border-radius: 50%;
+}
+
+.drop-indicator::before { left: -3px; }
+.drop-indicator::after  { right: -3px; }
+
 .drag-over-inside {
-  background-color: rgba(49, 57, 251, 0.12) !important;
+  background-color: var(--color-primary-light) !important;
+  border-radius: 8px;
+  outline: 1.5px solid var(--color-primary);
+  outline-offset: -1px;
 }
 
 /* Node Icons */
@@ -259,8 +289,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   cursor: pointer;
   color: var(--color-text-muted);
   transition: transform 0.2s ease;
@@ -272,7 +302,7 @@ body {
 
 .folder-toggle-spacer {
   display: inline-block;
-  width: 16px; /* Same width as .folder-toggle */
+  width: 14px; /* Matches folder-toggle width */
   flex-shrink: 0;
 }
 
@@ -280,6 +310,11 @@ body {
   color: var(--color-primary);
   display: flex;
   align-items: center;
+}
+
+.folder-icon svg {
+  width: 16px;
+  height: 16px;
 }
 
 .link-favicon {
@@ -300,9 +335,12 @@ body {
 }
 
 .footer-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
   gap: 8px;
+}
+
+.footer-actions .footer-btn {
+  flex: 1;
 }
 
 .footer-btn {
@@ -334,6 +372,98 @@ body {
   display: flex;
   justify-content: space-between;
   gap: 8px;
+}
+
+/* Share dialog toggle + link copy row */
+.share-toggle-container {
+  margin: 16px 0;
+}
+
+.switch-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  inset: 0;
+  background: var(--border-color);
+  border-radius: 24px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.slider::before {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 3px;
+  top: 3px;
+  background: #FFFFFF;
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+}
+
+.switch input:checked + .slider {
+  background: var(--color-primary);
+}
+
+.switch input:checked + .slider::before {
+  transform: translateX(20px);
+}
+
+.share-link-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.share-link-section label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.copy-input-group {
+  display: flex;
+  gap: 8px;
+}
+
+.copy-input-group input {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--bg-hover);
+  color: var(--color-text);
+  outline: none;
+}
+
+.share-hint {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  line-height: 1.4;
 }
 
 .utility-btn {
@@ -602,10 +732,12 @@ body {
   display: none; /* Force hide when closed to prevent stray menu items */
   position: fixed;
   inset: auto; /* CRITICAL: Resets browser Popover default inset: 0 centering */
-  background: #FFFFFF;
+  background: rgba(255, 255, 255, 0.72); /* Elegant translucent white */
+  backdrop-filter: blur(20px) saturate(190%); /* Premium frosted-glass effect */
+  -webkit-backdrop-filter: blur(20px) saturate(190%);
   border: 1px solid var(--border-color);
   border-radius: 12px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08); /* Softer shadow for glass look */
   padding: 6px;
   min-width: 160px;
   border: 1px solid rgba(0, 0, 0, 0.08);
@@ -648,6 +780,12 @@ body {
 
 .menu-item.danger:hover {
   background-color: rgba(234, 67, 53, 0.08);
+}
+
+.menu-separator {
+  height: 1px;
+  background: var(--border-color);
+  margin: 4px 6px;
 }
 
 /* Modals */
@@ -722,6 +860,44 @@ body {
   margin-top: 24px;
 }
 
+/* Theme Color Picker Grid */
+.theme-color-picker {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+  justify-content: space-between;
+}
+
+.color-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  padding: 0;
+  outline: none;
+}
+
+.color-dot:hover {
+  transform: scale(1.15);
+}
+
+.color-dot.active {
+  box-shadow: 0 0 0 2px #FFFFFF, 0 0 0 4.5px currentColor;
+}
+
+/* Color Dot Assignments */
+.color-dot.charcoal { background-color: #1E1E1E; color: #1E1E1E; }
+.color-dot.teal { background-color: #00B08B; color: #00B08B; }
+.color-dot.blue { background-color: #0084C7; color: #0084C7; }
+.color-dot.purple { background-color: #5C5FA8; color: #5C5FA8; }
+.color-dot.amber { background-color: #E49E19; color: #E49E19; }
+.color-dot.pink { background-color: #DF6E8C; color: #DF6E8C; }
+.color-dot.red { background-color: #C53D4C; color: #C53D4C; }
+.color-dot.orange { background-color: #E66738; color: #E66738; }
+
 .btn {
   padding: 10px 20px;
   border-radius: 10px;
@@ -750,6 +926,21 @@ body {
 
 .btn-primary:hover {
   background: var(--color-primary-hover);
+}
+
+.danger-btn {
+  background: #C53D4C;
+  border: none;
+  color: #FFFFFF;
+}
+
+.danger-btn:hover {
+  background: #A82E3C;
+}
+
+/* Ensure closed dialogs are completely hidden regardless of browser defaults */
+.custom-dialog:not([open]) {
+  display: none !important;
 }
 
 /* Switch styling for share toggle */
@@ -936,6 +1127,19 @@ input:checked + .slider:before {
 
 .hidden {
   display: none !important;
+}
+
+.dialog-error {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: #C53D4C;
+  margin-top: -8px;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  background: rgba(197, 61, 76, 0.08);
+  border-radius: 8px;
+  border: 1px solid rgba(197, 61, 76, 0.15);
 }
 
 /* ===============================================================

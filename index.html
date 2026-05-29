@@ -32,7 +32,7 @@
             <span class="workspace-author" id="workspace-author-display">A Folder from guest</span>
           </div>
         </div>
-        <button id="rename-workspace-btn" class="icon-btn" title="Rename Workspace">
+        <button id="rename-workspace-btn" class="icon-btn" title="Workspace Settings">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
           </svg>
@@ -40,7 +40,7 @@
       </div>
 
       <!-- Scrollable Tree Container -->
-      <div class="tree-scroll-container">
+      <div class="tree-scroll-container" id="tree-scroll-container">
         <div id="tree-root" class="tree-nodes">
           <!-- Dynamically populated tree items will go here -->
           <div class="loading-spinner">
@@ -52,32 +52,7 @@
 
       <!-- Sidebar Footer Operations -->
       <div class="sidebar-footer">
-        <div class="footer-actions">
-          <button id="add-folder-btn" class="footer-btn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2zM12 11v6M9 14h6"/>
-            </svg>
-            <span>New Folder</span>
-          </button>
-          <button id="add-link-btn" class="footer-btn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-            </svg>
-            <span>Add Link</span>
-          </button>
-        </div>
-        
         <div class="footer-utility">
-          <button id="share-settings-btn" class="utility-btn" title="Sharing settings">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
-              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-            </svg>
-            <span>Share Folder</span>
-          </button>
-          
           <button id="account-btn" class="utility-btn" title="Account settings">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
@@ -100,13 +75,16 @@
           </div>
         </div>
         <h2 id="empty-title">Welcome to Link-Folders</h2>
-        <p id="empty-desc">Create folders, nest them, and add URLs. Toggle sharing to create a beautiful, public read-only link-tree like Arc browser's shared folders.</p>
+        <p id="empty-desc">Right-click any folder to add links or sub-folders. Right-click empty space to create a new folder.</p>
         <div class="quick-tips">
           <div class="tip-item">
             <strong>💡 Reorder:</strong> Drag and drop any folder or link to organize it.
           </div>
           <div class="tip-item">
-            <strong>🔗 Share:</strong> Get a unique URL that anyone can view or clone.
+            <strong>🔗 Share:</strong> Right-click a folder → Share to get a public link.
+          </div>
+          <div class="tip-item">
+            <strong>📋 Paste:</strong> Copy a URL then press Cmd/Ctrl+V with a folder selected.
           </div>
         </div>
       </div>
@@ -151,8 +129,11 @@
     </main>
   </div>
 
+  <!-- Drop Indicator (floating line shown during drag) -->
+  <div id="drop-indicator" class="drop-indicator hidden"></div>
+
   <!-- Shared Custom Context Menu using Popover API -->
-  <div id="item-context-menu" popover="auto" class="context-menu">
+  <div id="item-context-menu" popover="manual" class="context-menu">
     <button class="menu-item" id="ctx-add-link">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
@@ -160,11 +141,33 @@
       </svg>
       <span>Add Link</span>
     </button>
+    <button class="menu-item" id="ctx-add-subfolder">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2zM12 11v6M9 14h6"/>
+      </svg>
+      <span>New Sub-folder</span>
+    </button>
+    <button class="menu-item" id="ctx-share">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+      </svg>
+      <span>Share Folder</span>
+    </button>
+    <button class="menu-item" id="ctx-copy-link">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+      </svg>
+      <span>Copy URL</span>
+    </button>
+    <div class="menu-separator"></div>
     <button class="menu-item" id="ctx-rename">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
       </svg>
-      <span>Rename</span>
+      <span id="ctx-rename-label">Edit</span>
     </button>
     <button class="menu-item danger" id="ctx-delete">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -172,6 +175,23 @@
         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
       </svg>
       <span>Delete</span>
+    </button>
+  </div>
+
+  <!-- Empty-space context menu (right-click on sidebar background) -->
+  <div id="space-context-menu" popover="manual" class="context-menu">
+    <button class="menu-item" id="sctx-new-folder">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2zM12 11v6M9 14h6"/>
+      </svg>
+      <span>New Folder</span>
+    </button>
+    <button class="menu-item" id="sctx-paste-link">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+      </svg>
+      <span>Paste Link</span>
     </button>
   </div>
 
@@ -218,18 +238,34 @@
 
   <!-- Rename Workspace Dialog -->
   <dialog id="workspace-dialog" class="custom-dialog">
-    <form method="dialog">
+    <form id="workspace-form">
       <h3>Workspace Settings</h3>
       
       <div class="form-group">
         <label for="workspace-title-input">Workspace Title</label>
-        <input type="text" id="workspace-title-input" required autocomplete="off">
+        <input type="text" id="workspace-title-input" required autocomplete="off" placeholder="My Bookmarks">
       </div>
 
       <div class="form-group">
         <label for="workspace-author-input">Your Name (Author)</label>
-        <input type="text" id="workspace-author-input" placeholder="Vivek" required autocomplete="off">
+        <input type="text" id="workspace-author-input" placeholder="Vivek" autocomplete="off">
       </div>
+
+      <div class="form-group">
+        <label>Workspace Theme Color</label>
+        <div class="theme-color-picker" id="theme-color-picker">
+          <button type="button" class="color-dot charcoal" data-color="charcoal" title="Charcoal"></button>
+          <button type="button" class="color-dot teal" data-color="teal" title="Teal"></button>
+          <button type="button" class="color-dot blue" data-color="blue" title="Blue"></button>
+          <button type="button" class="color-dot purple" data-color="purple" title="Purple"></button>
+          <button type="button" class="color-dot amber" data-color="amber" title="Amber"></button>
+          <button type="button" class="color-dot pink" data-color="pink" title="Pink"></button>
+          <button type="button" class="color-dot red" data-color="red" title="Red"></button>
+          <button type="button" class="color-dot orange" data-color="orange" title="Orange"></button>
+        </div>
+      </div>
+
+      <span class="dialog-error hidden" id="workspace-error"></span>
 
       <div class="dialog-actions">
         <button type="button" class="btn btn-secondary" id="workspace-cancel-btn">Cancel</button>
@@ -238,33 +274,33 @@
     </form>
   </dialog>
 
-  <!-- Share Workspace Dialog -->
-  <dialog id="share-dialog" class="custom-dialog">
+  <!-- Per-Folder Share Dialog -->
+  <dialog id="folder-share-dialog" class="custom-dialog">
     <div class="dialog-content">
-      <h3>Share Settings</h3>
-      <p class="dialog-desc">Make your workspace public to share a read-only visual clone with others.</p>
+      <h3>Share Folder</h3>
+      <p class="dialog-desc" id="folder-share-desc">Make this folder public so anyone with the link can view it.</p>
       
       <div class="share-toggle-container">
         <label class="switch-label">
           <span>Public Sharing</span>
           <div class="switch">
-            <input type="checkbox" id="share-toggle">
+            <input type="checkbox" id="folder-share-toggle">
             <span class="slider"></span>
           </div>
         </label>
       </div>
 
-      <div id="share-link-section" class="share-link-section hidden">
-        <label for="share-link-input">Public Share Link</label>
+      <div id="folder-share-link-section" class="share-link-section hidden">
+        <label for="folder-share-link-input">Public Share Link</label>
         <div class="copy-input-group">
-          <input type="text" id="share-link-input" readonly value="">
-          <button id="copy-link-btn" class="btn btn-primary">Copy</button>
+          <input type="text" id="folder-share-link-input" readonly value="">
+          <button id="folder-copy-link-btn" class="btn btn-primary">Copy</button>
         </div>
-        <span class="share-hint">Anyone with this link can view and clone your folders in their workspace.</span>
+        <span class="share-hint">Anyone with this link can view and clone this folder.</span>
       </div>
 
       <div class="dialog-actions">
-        <button type="button" class="btn btn-secondary" id="share-close-btn">Close</button>
+        <button type="button" class="btn btn-secondary" id="folder-share-close-btn">Close</button>
       </div>
     </div>
   </dialog>
@@ -290,8 +326,10 @@
       </div>
 
       <div id="account-anonymous" class="account-state">
-        <p class="account-desc">You are currently using a **temporary guest account**. Your data is saved locally on this browser but will be lost if you clear browser data.</p>
+        <p class="account-desc">You're using a temporary guest session. Sign in with Google to keep your workspaces safe and sync across devices.</p>
         
+        <span class="dialog-error hidden" id="account-error"></span>
+
         <div class="google-sign-in-box">
           <button id="google-login-btn" class="google-btn">
             <svg class="google-icon" viewBox="0 0 24 24" width="18" height="18" xmlns="http://www.w3.org/2000/svg">
@@ -300,15 +338,61 @@
               <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l3.66-2.85z" fill="#FBBC05"/>
               <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
             </svg>
-            <span>Link with Google</span>
+            <span>Sign in with Google</span>
           </button>
         </div>
-        
-        <span class="share-hint">Linking keeps your workspace safe forever and allows sync across devices.</span>
         
         <div class="dialog-actions">
           <button type="button" class="btn btn-secondary" id="account-close-btn-2">Close</button>
         </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Edit Folder/Link Dialog -->
+  <dialog id="edit-item-dialog" class="custom-dialog">
+    <form method="dialog">
+      <h3 id="edit-item-dialog-title">Edit Item</h3>
+      
+      <div class="form-group">
+        <label for="edit-item-title-input" id="edit-item-title-label">Name</label>
+        <input type="text" id="edit-item-title-input" required autocomplete="off">
+      </div>
+
+      <div class="form-group hidden" id="edit-item-url-group">
+        <label for="edit-item-url-input">URL</label>
+        <input type="url" id="edit-item-url-input" placeholder="https://example.com" autocomplete="off">
+      </div>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary" id="edit-item-cancel-btn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="edit-item-save-btn">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Delete Confirmation Dialog -->
+  <dialog id="delete-confirm-dialog" class="custom-dialog">
+    <div class="dialog-content">
+      <h3 id="delete-confirm-title">Delete Folder</h3>
+      <p class="dialog-desc" id="delete-confirm-desc">Are you sure you want to delete this folder? This action cannot be undone.</p>
+      
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary" id="delete-confirm-cancel-btn">Cancel</button>
+        <button type="button" class="btn danger-btn" id="delete-confirm-btn">Delete</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Sign Out Confirmation Dialog -->
+  <dialog id="signout-confirm-dialog" class="custom-dialog">
+    <div class="dialog-content">
+      <h3>Sign Out</h3>
+      <p class="dialog-desc">Are you sure you want to sign out of your Google account? Your data will remain synced in the cloud.</p>
+      
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary" id="signout-confirm-cancel-btn">Cancel</button>
+        <button type="button" class="btn btn-primary" id="signout-confirm-btn">Sign Out</button>
       </div>
     </div>
   </dialog>
