@@ -67,6 +67,44 @@ body {
   -webkit-user-select: none;
 }
 
+/* Sidebar branding logo & wordmark */
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px;
+  margin-bottom: 28px;
+}
+
+.brand-logo {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.brand-logo svg {
+  width: 100%;
+  height: 100%;
+}
+
+.brand-name {
+  font-family: var(--font-sans);
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  color: var(--color-text);
+  line-height: 1;
+  text-transform: lowercase;
+}
+
+/* Hover micro-animation for logo wobble */
+.sidebar-brand:hover .brand-logo {
+  transform: scale(1.12) rotate(6deg);
+}
+
 .sidebar-header {
   display: flex;
   justify-content: space-between;
@@ -535,31 +573,83 @@ body {
   text-align: center;
 }
 
-.folder-stack {
+/* Brand splash empty-state illustrations */
+.brand-splash {
   position: relative;
-  width: 120px;
-  height: 80px;
-  margin-bottom: 24px;
+  width: 140px;
+  height: 140px;
+  margin-bottom: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.illus-folder {
+.splash-logo {
+  width: 100px;
+  height: 100px;
+  z-index: 5;
+  filter: drop-shadow(0 12px 24px rgba(124, 58, 237, 0.18));
+  transition: transform 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.empty-card:hover .splash-logo {
+  transform: scale(1.15) rotate(-6deg);
+}
+
+/* Decorative background splash drops */
+.splash-drop {
   position: absolute;
-  bottom: 0;
-  width: 90px;
-  height: 60px;
-  background: var(--color-primary-light);
-  border: 2px solid var(--color-primary);
-  border-radius: 12px;
-  transition: all 0.3s ease;
+  border-radius: 50%;
+  opacity: 0.35;
+  filter: blur(1.5px);
+  animation: float-drop 4s ease-in-out infinite alternate;
+  z-index: 1;
 }
 
-.illus-folder.f1 { left: 0; transform: rotate(-8deg); z-index: 1; }
-.illus-folder.f2 { left: 15px; transform: rotate(4deg); background: rgba(49, 57, 251, 0.15); z-index: 2; }
-.illus-folder.f3 { left: 30px; transform: rotate(-2deg); background: var(--bg-card); z-index: 3; }
+.splash-drop.sd-1 {
+  width: 14px;
+  height: 14px;
+  background: var(--color-primary); /* Dynamically changes with theme */
+  top: 15px;
+  left: 20px;
+  animation-delay: 0s;
+}
 
-.empty-card:hover .illus-folder.f1 { transform: rotate(-15deg) translate(-5px, -5px); }
-.empty-card:hover .illus-folder.f2 { transform: rotate(8deg) translate(0, -8px); }
-.empty-card:hover .illus-folder.f3 { transform: rotate(0deg) translate(5px, -3px); }
+.splash-drop.sd-2 {
+  width: 20px;
+  height: 20px;
+  background: #F59E0B; /* Yellow */
+  bottom: 20px;
+  right: 15px;
+  animation-delay: 1s;
+}
+
+.splash-drop.sd-3 {
+  width: 12px;
+  height: 12px;
+  background: #10B981; /* Green */
+  top: 35px;
+  right: 10px;
+  animation-delay: 2s;
+}
+
+.splash-drop.sd-4 {
+  width: 18px;
+  height: 18px;
+  background: #EF4444; /* Red */
+  bottom: 10px;
+  left: 30px;
+  animation-delay: 3s;
+}
+
+@keyframes float-drop {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    transform: translateY(-8px) scale(1.1);
+  }
+}
 
 .empty-card h2 {
   font-size: 24px;

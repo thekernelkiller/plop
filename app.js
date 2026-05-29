@@ -356,7 +356,7 @@ function renderTree(isOwner) {
 
   const rootIds = activeWorkspace.childrenIds || [];
   if (rootIds.length === 0) {
-    showEmptyState("Welcome to Link-Folders", "Right-click the sidebar to create a folder, or paste a link with Cmd/Ctrl+V.");
+    showEmptyState("Welcome to Plop", "Right-click the sidebar to create a folder, or paste a link with Cmd/Ctrl+V.");
     return;
   }
 
@@ -541,7 +541,7 @@ function showPreviewState(item) {
 
 document.getElementById("preview-back-btn")?.addEventListener("click", () => {
   previewIframe.src = "";
-  showEmptyState("Welcome to Link-Folders", "Select a folder or link from the sidebar.");
+  showEmptyState("Welcome to Plop", "Select a folder or link from the sidebar.");
 });
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1082,7 +1082,7 @@ document.getElementById("delete-confirm-btn").addEventListener("click", async ()
     deleteConfirmDialog.close();
     if (selectedItemId === targetId || toDelete.includes(selectedItemId)) {
       selectedItemId = null;
-      showEmptyState("Welcome to Link-Folders", "Select a folder or link from the sidebar.");
+      showEmptyState("Welcome to Plop", "Select a folder or link from the sidebar.");
     }
   } catch (err) {
     console.error("Delete failed:", err);
