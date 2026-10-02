@@ -343,7 +343,10 @@ function renderTree(isOwner) {
   if (!activeWorkspaceId) return;
 
   treeRoot.innerHTML = "";
-  selectedItemId = null;
+
+  if (selectedItemId && !workspaceItems[selectedItemId]) {
+    selectedItemId = null;
+  }
 
   if (isSharedView) {
     const rootFolder = workspaceItems[sharedRootFolderId];
@@ -356,6 +359,13 @@ function renderTree(isOwner) {
 
     if ((rootFolder.childrenIds || []).length === 0) {
       showEmptyState(rootFolder.title, "This shared folder is empty.");
+    } else if (selectedItemId && workspaceItems[selectedItemId]) {
+      const selectedItem = workspaceItems[selectedItemId];
+      if (selectedItem.type === "folder") {
+        showEmptyState(selectedItem.title, `Folder · ${(selectedItem.childrenIds || []).length} items`);
+      } else {
+        showPreviewState(selectedItem);
+      }
     }
     return;
   }
@@ -375,8 +385,17 @@ function renderTree(isOwner) {
     }
   });
 
-  emptyState.classList.add("hidden");
-  previewState.classList.add("hidden");
+  if (selectedItemId && workspaceItems[selectedItemId]) {
+    const selectedItem = workspaceItems[selectedItemId];
+    if (selectedItem.type === "folder") {
+      showEmptyState(selectedItem.title, `Folder · ${(selectedItem.childrenIds || []).length} items`);
+    } else {
+      showPreviewState(selectedItem);
+    }
+  } else {
+    emptyState.classList.remove("hidden");
+    previewState.classList.add("hidden");
+  }
 }
 
 function renderNode(item, depth, isOwner) {
@@ -384,7 +403,7 @@ function renderNode(item, depth, isOwner) {
   const isExpanded = item._expanded !== false; // default open
 
   const el = document.createElement("div");
-  el.className = "tree-item";
+  el.className = `tree-item${selectedItemId === item.id ? " selected" : ""}`;
   el.dataset.id   = item.id;
   el.dataset.type = item.type;
   el.draggable    = isOwner;
@@ -519,8 +538,56 @@ function renderNode(item, depth, isOwner) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// UI HELPERS
+// UI HELPERS & NOTIFICATIONS
 // ─────────────────────────────────────────────────────────────────────
+
+function showToast(message, type = "info", duration = 3000) {
+  let container = document.querySelector(".toast-container");
+  if (!container) {
+    container = document.createElement("div");
+    container.className = "toast-container";
+    document.body.appendChild(container);
+  }
+
+  const toast = document.createElement("div");
+  toast.className = `toast ${type}`;
+
+  let icon = "ℹ️";
+  if (type === "success") icon = "✅";
+  if (type === "error")   icon = "⚠️";
+  if (type === "loading") icon = "⏳";
+
+  toast.innerHTML = `<span>${icon}</span> <span>${message}</span>`;
+  container.appendChild(toast);
+
+  if (type !== "loading" && duration > 0) {
+    setTimeout(() => {
+      toast.style.opacity = "0";
+      toast.style.transform = "translateY(16px)";
+      toast.style.transition = "all 0.3s ease";
+      setTimeout(() => toast.remove(), 300);
+    }, duration);
+  }
+
+  return toast;
+}
+
+function setButtonLoading(button, isLoading, loadingText = "Saving...") {
+  if (!button) return;
+  if (isLoading) {
+    button.dataset.originalText = button.innerHTML;
+    button.disabled = true;
+    button.classList.add("btn-loading");
+    button.innerHTML = `<span class="btn-spinner"></span><span>${loadingText}</span>`;
+  } else {
+    button.disabled = false;
+    button.classList.remove("btn-loading");
+    if (button.dataset.originalText) {
+      button.innerHTML = button.dataset.originalText;
+      delete button.dataset.originalText;
+    }
+  }
+}
 
 function showEmptyState(title, desc) {
   document.getElementById("empty-title").textContent = title;
@@ -1095,10 +1162,14 @@ document.getElementById("add-folder-btn")?.addEventListener("click", () => {
 
 document.getElementById("folder-cancel-btn").addEventListener("click", () => folderDialog.close());
 
+const folderSaveBtn = document.getElementById("folder-save-btn");
+
 folderDialog.querySelector("form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const title = document.getElementById("folder-title-input").value.trim();
   if (!title) return;
+
+  setButtonLoading(folderSaveBtn, true, "Creating...");
 
   const folderId = generateUUID();
   const parentId = folderDialogParentId;
@@ -1132,9 +1203,13 @@ folderDialog.querySelector("form").addEventListener("submit", async (e) => {
 
   try {
     await batch.commit();
+    showToast("Folder created!", "success");
     folderDialog.close();
   } catch (err) {
     console.error("Create folder failed:", err);
+    showToast("Failed to create folder: " + err.message, "error");
+  } finally {
+    setButtonLoading(folderSaveBtn, false);
   }
 });
 
@@ -1144,11 +1219,15 @@ folderDialog.querySelector("form").addEventListener("submit", async (e) => {
 
 document.getElementById("link-cancel-btn").addEventListener("click", () => linkDialog.close());
 
+const linkSaveBtn = document.getElementById("link-save-btn");
+
 linkDialog.querySelector("form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const url   = document.getElementById("link-url-input").value.trim();
   const title = document.getElementById("link-title-input").value.trim() || getDomain(url);
   if (!url) return;
+
+  setButtonLoading(linkSaveBtn, true, "Saving...");
 
   const linkId   = generateUUID();
   const parentId = linkDialogParentId;
@@ -1181,9 +1260,17 @@ linkDialog.querySelector("form").addEventListener("submit", async (e) => {
 
   try {
     await batch.commit();
+    showToast("Link added!", "success");
     linkDialog.close();
+    selectedItemId = linkId;
+    if (workspaceItems[linkId]) {
+      showPreviewState(workspaceItems[linkId]);
+    }
   } catch (err) {
     console.error("Create link failed:", err);
+    showToast("Failed to add link: " + err.message, "error");
+  } finally {
+    setButtonLoading(linkSaveBtn, false);
   }
 });
 
@@ -1216,11 +1303,15 @@ function openNoteDialog(noteId = null, parentId = "root") {
 
 document.getElementById("note-cancel-btn")?.addEventListener("click", () => noteDialog.close());
 
+const noteSaveBtn = document.getElementById("note-save-btn");
+
 noteDialog?.querySelector("form")?.addEventListener("submit", async (e) => {
   e.preventDefault();
   const title   = document.getElementById("note-title-input").value.trim();
   const content = document.getElementById("note-content-input").value;
   if (!title) return;
+
+  setButtonLoading(noteSaveBtn, true, "Saving Note...");
 
   if (editingNoteId && workspaceItems[editingNoteId]) {
     // Edit existing note
@@ -1229,17 +1320,33 @@ noteDialog?.querySelector("form")?.addEventListener("submit", async (e) => {
         title,
         content
       });
+      showToast("Note saved successfully!", "success");
+      const updatedItem = { ...workspaceItems[editingNoteId], title, content };
+      if (selectedItemId === editingNoteId) {
+        showPreviewState(updatedItem);
+      }
       noteDialog.close();
     } catch (err) {
       console.error("Update note failed:", err);
+      showToast("Failed to save note: " + err.message, "error");
+    } finally {
+      setButtonLoading(noteSaveBtn, false);
     }
   } else {
     // Create new note
     try {
-      await createNoteItem(title, content, noteDialogParentId);
+      const newNoteId = await createNoteItem(title, content, noteDialogParentId);
+      showToast("Note created successfully!", "success");
       noteDialog.close();
+      if (newNoteId && workspaceItems[newNoteId]) {
+        selectedItemId = newNoteId;
+        showPreviewState(workspaceItems[newNoteId]);
+      }
     } catch (err) {
       console.error("Create note failed:", err);
+      showToast("Failed to create note: " + err.message, "error");
+    } finally {
+      setButtonLoading(noteSaveBtn, false);
     }
   }
 });
@@ -1273,20 +1380,31 @@ async function createNoteItem(title, content, parentId) {
   }
 
   await batch.commit();
+  return noteId;
 }
 
 markdownFileInput?.addEventListener("change", (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
 
+  const toast = showToast(`Uploading "${file.name}"...`, "loading", 0);
+
   const reader = new FileReader();
   reader.onload = async (evt) => {
     const text  = evt.target.result || "";
     const title = file.name || "Untitled Note.md";
     try {
-      await createNoteItem(title, text, noteDialogParentId);
+      const newNoteId = await createNoteItem(title, text, noteDialogParentId);
+      toast.remove();
+      showToast(`Uploaded "${title}" successfully!`, "success");
+      if (newNoteId && workspaceItems[newNoteId]) {
+        selectedItemId = newNoteId;
+        showPreviewState(workspaceItems[newNoteId]);
+      }
     } catch (err) {
+      toast.remove();
       console.error("Upload markdown failed:", err);
+      showToast("Failed to upload file: " + err.message, "error");
     }
     markdownFileInput.value = "";
   };
@@ -1325,6 +1443,8 @@ function openEditDialog(itemId) {
 
 document.getElementById("edit-item-cancel-btn").addEventListener("click", () => editItemDialog.close());
 
+const editItemSaveBtn = document.getElementById("edit-item-save-btn");
+
 editItemDialog.querySelector("form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const item  = workspaceItems[contextMenuTargetId];
@@ -1334,14 +1454,20 @@ editItemDialog.querySelector("form").addEventListener("submit", async (e) => {
   const newUrl   = document.getElementById("edit-item-url-input").value.trim();
   if (!newTitle) return;
 
+  setButtonLoading(editItemSaveBtn, true, "Saving...");
+
   const updates = { title: newTitle };
   if (item.type === "link" && newUrl) updates.url = newUrl;
 
   try {
     await updateDoc(doc(db, "workspaces", activeWorkspaceId, "items", contextMenuTargetId), updates);
+    showToast("Saved changes successfully!", "success");
     editItemDialog.close();
   } catch (err) {
     console.error("Edit failed:", err);
+    showToast("Failed to save changes: " + err.message, "error");
+  } finally {
+    setButtonLoading(editItemSaveBtn, false);
   }
 });
 
@@ -1351,10 +1477,14 @@ editItemDialog.querySelector("form").addEventListener("submit", async (e) => {
 
 document.getElementById("delete-confirm-cancel-btn").addEventListener("click", () => deleteConfirmDialog.close());
 
+const deleteConfirmBtn = document.getElementById("delete-confirm-btn");
+
 document.getElementById("delete-confirm-btn").addEventListener("click", async () => {
   const targetId = contextMenuTargetId;
   const item = workspaceItems[targetId];
   if (!item) { deleteConfirmDialog.close(); return; }
+
+  setButtonLoading(deleteConfirmBtn, true, "Deleting...");
 
   const batch = writeBatch(db);
 
@@ -1374,6 +1504,7 @@ document.getElementById("delete-confirm-btn").addEventListener("click", async ()
 
   try {
     await batch.commit();
+    showToast("Deleted successfully!", "success");
     deleteConfirmDialog.close();
     if (selectedItemId === targetId || toDelete.includes(selectedItemId)) {
       selectedItemId = null;
@@ -1381,7 +1512,9 @@ document.getElementById("delete-confirm-btn").addEventListener("click", async ()
     }
   } catch (err) {
     console.error("Delete failed:", err);
-    alert(`Delete failed: ${err.message}`);
+    showToast(`Delete failed: ${err.message}`, "error");
+  } finally {
+    setButtonLoading(deleteConfirmBtn, false);
   }
 });
 
