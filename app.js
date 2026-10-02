@@ -684,7 +684,8 @@ function showPreviewState(item) {
     activeUrl.textContent   = "Markdown Document";
     activeLinkOpen.classList.add("hidden");
     if (previewToggleViewer) previewToggleViewer.classList.add("hidden");
-    if (activeNoteEditBtn) activeNoteEditBtn.classList.remove("hidden");
+    // Only show Edit button for the workspace owner, not for viewers
+    if (activeNoteEditBtn) activeNoteEditBtn.classList.toggle("hidden", isSharedView);
 
     previewIframe.classList.add("hidden");
     if (notePreviewContainer) {
@@ -946,14 +947,21 @@ function showContextMenu(itemId, clientX, clientY, itemType) {
   contextMenuTargetId = itemId;
   const isFolder = itemType === "folder";
   const item = workspaceItems[itemId];
+  const isNote = itemType === "note";
 
-  // Visibility of menu items based on item type
+  // Visibility of menu items based on item type and ownership
   document.getElementById("ctx-add-link")?.classList.toggle("hidden",      !isFolder);
   document.getElementById("ctx-add-note")?.classList.toggle("hidden",      !isFolder);
   document.getElementById("ctx-upload-md")?.classList.toggle("hidden",     !isFolder);
   document.getElementById("ctx-add-subfolder")?.classList.toggle("hidden", !isFolder);
   document.getElementById("ctx-share")?.classList.toggle("hidden",        !isFolder);
   document.getElementById("ctx-copy-link")?.classList.toggle("hidden",    isFolder);
+
+  // In shared/viewer context: hide Edit and Delete for notes so viewers can't modify
+  const ownerOnlyActions = ["ctx-rename", "ctx-delete"];
+  ownerOnlyActions.forEach(id => {
+    document.getElementById(id)?.classList.toggle("hidden", isSharedView);
+  });
 
   // Label: "Rename" for folders, "Edit" for links & notes
   document.getElementById("ctx-rename-label").textContent = isFolder ? "Rename" : "Edit";
@@ -1111,14 +1119,23 @@ document.getElementById("ctx-copy-link").addEventListener("click", () => {
   itemContextMenu.hidePopover();
   const item = workspaceItems[contextMenuTargetId];
   if (!item) return;
+
   if (item.url) {
-    navigator.clipboard.writeText(item.url).catch(() => {});
+    // Regular link — copy the URL
+    navigator.clipboard.writeText(item.url)
+      .then(() => showToast("URL copied to clipboard!", "success"))
+      .catch(() => showToast("Could not access clipboard.", "error"));
   } else if (item.type === "note") {
-    // Generate single note share URL if inside shared folder or workspace
     const sharedVia = item.sharedVia;
     if (sharedVia) {
+      // Note is inside a shared folder — copy a deep-link to it
       const shareUrl = `${window.location.origin}${window.location.pathname}?share=${activeWorkspaceId}&folder=${sharedVia}&item=${item.id}`;
-      navigator.clipboard.writeText(shareUrl).catch(() => {});
+      navigator.clipboard.writeText(shareUrl)
+        .then(() => showToast("Note link copied to clipboard!", "success"))
+        .catch(() => showToast("Could not access clipboard.", "error"));
+    } else {
+      // Note is private — prompt the user to share its parent folder first
+      showToast("Share the parent folder first to get a shareable note link.", "info", 4000);
     }
   }
 });
