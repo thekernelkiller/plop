@@ -171,6 +171,19 @@
             </div>
           </div>
           <div class="preview-actions">
+            <button id="active-note-edit-btn" class="action-btn-secondary hidden" title="Edit this Markdown note">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+              </svg>
+              <span>Edit Note</span>
+            </button>
+            <button id="preview-toggle-viewer" class="action-btn-secondary" title="Switch view mode between direct URL and Web/PDF Viewer">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+              </svg>
+              <span id="viewer-toggle-label">Web / PDF Viewer</span>
+            </button>
             <a id="active-link-open" href="#" target="_blank" class="action-btn-primary">
               <span>Open Link</span>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -181,19 +194,30 @@
         </div>
         <div class="preview-content">
           <!-- Embedded WebView Frame -->
-          <iframe id="preview-iframe" src="" sandbox="allow-scripts allow-same-origin allow-popups allow-forms"></iframe>
+          <iframe id="preview-iframe" src=""></iframe>
+          
+          <!-- Rendered Markdown Document Container -->
+          <div id="note-preview-container" class="note-preview-container hidden">
+            <div id="note-rendered-content" class="note-markdown-body"></div>
+          </div>
           
           <!-- Embedded block warning overlay -->
           <div id="iframe-blocked-warning" class="iframe-warning hidden">
             <div class="warning-icon">🔒</div>
-            <h3>Embedding Blocked by Site</h3>
-            <p>This site protects itself by preventing display inside other applications. You can open it securely in a new browser tab.</p>
-            <a id="active-link-open-warning" href="#" target="_blank" class="warning-btn">Open in New Tab</a>
+            <h3>Embedding Protected by Site</h3>
+            <p>This site protects itself from inline embedding via security headers (X-Frame-Options). You can load it using Web Viewer or open it directly in a new tab.</p>
+            <div class="warning-actions">
+              <button id="warning-try-viewer" class="btn btn-secondary">Try Web Viewer</button>
+              <a id="active-link-open-warning" href="#" target="_blank" class="btn btn-primary">Open in New Tab ↗</a>
+            </div>
           </div>
         </div>
       </div>
     </main>
   </div>
+
+  <!-- Hidden file input for uploading markdown files -->
+  <input type="file" id="markdown-file-input" accept=".md,.markdown,.txt" style="display: none;">
 
   <!-- Drop Indicator (floating line shown during drag) -->
   <div id="drop-indicator" class="drop-indicator hidden"></div>
@@ -206,6 +230,23 @@
         <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
       </svg>
       <span>Add Link</span>
+    </button>
+    <button class="menu-item" id="ctx-add-note">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="12" y1="18" x2="12" y2="12"/>
+        <line x1="9" y1="15" x2="15" y2="15"/>
+      </svg>
+      <span>New Note</span>
+    </button>
+    <button class="menu-item" id="ctx-upload-md">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/>
+        <line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      <span>Upload .md File</span>
     </button>
     <button class="menu-item" id="ctx-add-subfolder">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -251,6 +292,23 @@
         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2zM12 11v6M9 14h6"/>
       </svg>
       <span>New Folder</span>
+    </button>
+    <button class="menu-item" id="sctx-add-note">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="12" y1="18" x2="12" y2="12"/>
+        <line x1="9" y1="15" x2="15" y2="15"/>
+      </svg>
+      <span>New Note</span>
+    </button>
+    <button class="menu-item" id="sctx-upload-md">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/>
+        <line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      <span>Upload .md File</span>
     </button>
     <button class="menu-item" id="sctx-paste-link">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -413,6 +471,28 @@
         </div>
       </div>
     </div>
+  </dialog>
+
+  <!-- Add/Edit Note Dialog -->
+  <dialog id="note-dialog" class="custom-dialog dialog-large">
+    <form method="dialog">
+      <h3 id="note-dialog-title">New Note</h3>
+      
+      <div class="form-group">
+        <label for="note-title-input">Title</label>
+        <input type="text" id="note-title-input" placeholder="Project Notes.md" required autocomplete="off">
+      </div>
+
+      <div class="form-group">
+        <label for="note-content-input">Markdown Content</label>
+        <textarea id="note-content-input" placeholder="# Write your markdown here..." rows="12" class="code-textarea"></textarea>
+      </div>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary" id="note-cancel-btn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="note-save-btn">Save Note</button>
+      </div>
+    </form>
   </dialog>
 
   <!-- Edit Folder/Link Dialog -->

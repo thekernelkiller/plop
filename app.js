@@ -96,6 +96,16 @@ const signoutConfirmDialog = document.getElementById("signout-confirm-dialog");
 const itemContextMenu  = document.getElementById("item-context-menu");
 const spaceContextMenu = document.getElementById("space-context-menu");
 
+// Note elements
+const noteDialog           = document.getElementById("note-dialog");
+const markdownFileInput    = document.getElementById("markdown-file-input");
+const notePreviewContainer = document.getElementById("note-preview-container");
+const noteRenderedContent  = document.getElementById("note-rendered-content");
+const activeNoteEditBtn    = document.getElementById("active-note-edit-btn");
+
+let noteDialogParentId = "root";
+let editingNoteId      = null;
+
 // ─────────────────────────────────────────────────────────────────────
 // AUTH + INITIAL LOAD
 // ─────────────────────────────────────────────────────────────────────
@@ -402,6 +412,9 @@ function renderNode(item, depth, isOwner) {
   if (isFolder) {
     iconEl.className = "folder-icon";
     iconEl.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" fill="currentColor" fill-opacity="0.15"/><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
+  } else if (item.type === "note") {
+    iconEl.className = "note-icon";
+    iconEl.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="currentColor" fill-opacity="0.15"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`;
   } else {
     iconEl.className = "link-favicon-wrap";
     const faviconEl = document.createElement("img");
@@ -516,29 +529,143 @@ function showEmptyState(title, desc) {
   previewState.classList.add("hidden");
 }
 
-function showPreviewState(item) {
-  activeFavicon.src  = `https://www.google.com/s2/favicons?domain=${getDomain(item.url)}&sz=32`;
-  activeTitle.textContent = item.title;
-  activeUrl.textContent   = item.url;
-  activeLinkOpen.href     = item.url;
-  if (activeLinkOpenWarn) activeLinkOpenWarn.href = item.url;
+let currentPreviewItem = null;
+let currentPreviewMode = "direct"; // "direct" | "viewer"
 
+function isPdfUrl(url) {
+  if (!url) return false;
+  const cleanUrl = url.split("?")[0].split("#")[0].toLowerCase();
+  return cleanUrl.endsWith(".pdf") || cleanUrl.includes(".pdf");
+}
+
+function getViewerUrl(url) {
+  return `https://docs.google.com/gview?url=${encodeURIComponent(url)}&embedded=true`;
+}
+
+function setPreviewIframeSrc(url, mode) {
+  currentPreviewMode = mode;
+  const viewerLabel = document.getElementById("viewer-toggle-label");
+  if (viewerLabel) {
+    viewerLabel.textContent = mode === "viewer" ? "Direct View" : "Web / PDF Viewer";
+  }
+
+  if (mode === "viewer") {
+    previewIframe.src = getViewerUrl(url);
+  } else {
+    previewIframe.src = url;
+  }
+}
+
+// Lightweight Markdown HTML Parser
+function renderMarkdownToHtml(mdText) {
+  if (!mdText) return "<p><em>Empty note. Click Edit Note to write content.</em></p>";
+
+  let html = mdText
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  // Code blocks ``` ... ```
+  html = html.replace(/```([\s\S]*?)```/g, (match, code) => {
+    return `<pre><code>${code.trim()}</code></pre>`;
+  });
+
+  // Inline code `...`
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+
+  // Headings #, ##, ###
+  html = html.replace(/^### (.*$)/gim, "<h3>$1</h3>")
+             .replace(/^## (.*$)/gim, "<h2>$1</h2>")
+             .replace(/^# (.*$)/gim, "<h1>$1</h1>");
+
+  // Blockquotes >
+  html = html.replace(/^\> (.*$)/gim, "blockquote>$1</blockquote>");
+
+  // Bold & Italic
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+             .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+
+  // Links [text](url)
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+  // Unordered lists - item
+  html = html.replace(/^\s*-\s+(.*$)/gim, "<li>$1</li>");
+  html = html.replace(/(<li>.*<\/li>)/gim, "<ul>$1</ul>");
+  html = html.replace(/<\/ul>\s*<ul>/g, "");
+
+  // Paragraphs
+  const lines = html.split(/\n\n+/);
+  html = lines.map(line => {
+    line = line.trim();
+    if (!line) return "";
+    if (/^<(h1|h2|h3|pre|ul|ol|blockquote|table)/i.test(line)) return line;
+    return `<p>${line.replace(/\n/g, "<br>")}</p>`;
+  }).join("\n");
+
+  return html;
+}
+
+function showPreviewState(item) {
+  currentPreviewItem = item;
   emptyState.classList.add("hidden");
   previewState.classList.remove("hidden");
-
-  previewIframe.src = item.url;
   if (iframeBlockedWarn) iframeBlockedWarn.classList.add("hidden");
-  previewIframe.onload = () => {
-    try {
-      if (previewIframe.contentDocument) iframeBlockedWarn?.classList.add("hidden");
-    } catch {
-      iframeBlockedWarn?.classList.remove("hidden");
+
+  if (item.type === "note") {
+    // Show Markdown Note View
+    activeFavicon.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237C3AED' stroke-width='2'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpolyline points='14 2 14 8 20 8'/%3E%3C/svg%3E";
+    activeTitle.textContent = item.title;
+    activeUrl.textContent   = "Markdown Document";
+    activeLinkOpen.classList.add("hidden");
+    if (previewToggleViewer) previewToggleViewer.classList.add("hidden");
+    if (activeNoteEditBtn) activeNoteEditBtn.classList.remove("hidden");
+
+    previewIframe.classList.add("hidden");
+    if (notePreviewContainer) {
+      notePreviewContainer.classList.remove("hidden");
+      noteRenderedContent.innerHTML = renderMarkdownToHtml(item.content || "");
     }
-  };
+  } else {
+    // Show Link / WebView
+    activeFavicon.src  = `https://www.google.com/s2/favicons?domain=${getDomain(item.url)}&sz=32`;
+    activeTitle.textContent = item.title || item.url;
+    activeUrl.textContent   = item.url;
+    activeLinkOpen.href     = item.url;
+    activeLinkOpen.classList.remove("hidden");
+    if (previewToggleViewer) previewToggleViewer.classList.remove("hidden");
+    if (activeNoteEditBtn) activeNoteEditBtn.classList.add("hidden");
+
+    if (notePreviewContainer) notePreviewContainer.classList.add("hidden");
+    previewIframe.classList.remove("hidden");
+
+    const isPdf = isPdfUrl(item.url);
+    if (isPdf) {
+      setPreviewIframeSrc(item.url, "viewer");
+    } else {
+      setPreviewIframeSrc(item.url, "direct");
+    }
+  }
 }
+
+activeNoteEditBtn?.addEventListener("click", () => {
+  if (!currentPreviewItem || currentPreviewItem.type !== "note") return;
+  openNoteDialog(currentPreviewItem.id);
+});
+
+document.getElementById("preview-toggle-viewer")?.addEventListener("click", () => {
+  if (!currentPreviewItem) return;
+  const nextMode = currentPreviewMode === "viewer" ? "direct" : "viewer";
+  if (iframeBlockedWarn) iframeBlockedWarn.classList.add("hidden");
+  setPreviewIframeSrc(currentPreviewItem.url, nextMode);
+});
+
+document.getElementById("warning-try-viewer")?.addEventListener("click", () => {
+  if (!currentPreviewItem) return;
+  if (iframeBlockedWarn) iframeBlockedWarn.classList.add("hidden");
+  setPreviewIframeSrc(currentPreviewItem.url, "viewer");
+});
 
 document.getElementById("preview-back-btn")?.addEventListener("click", () => {
   previewIframe.src = "";
+  currentPreviewItem = null;
   showEmptyState("Welcome to Plop", "Select a folder or link from the sidebar.");
 });
 
@@ -589,6 +716,29 @@ treeRoot.addEventListener("dragover", (e) => {
 
 treeRoot.addEventListener("drop", async (e) => {
   e.preventDefault();
+
+  // Handle desktop file drop (.md, .markdown, .txt)
+  if (e.dataTransfer?.files?.length > 0) {
+    const file = e.dataTransfer.files[0];
+    const isMd = file.name.endsWith(".md") || file.name.endsWith(".markdown") || file.name.endsWith(".txt");
+    if (isMd) {
+      const targetFolderId = currentDropTarget?.id && workspaceItems[currentDropTarget.id]?.type === "folder"
+        ? currentDropTarget.id : "root";
+      clearDropVisuals();
+
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+        try {
+          await createNoteItem(file.name, evt.target.result || "", targetFolderId);
+        } catch (err) {
+          console.error("Drop markdown file failed:", err);
+        }
+      };
+      reader.readAsText(file);
+      return;
+    }
+  }
+
   if (!currentDropTarget || !draggedItemId) return;
 
   const { id: targetId, zone } = currentDropTarget;
@@ -817,6 +967,17 @@ document.getElementById("sctx-new-folder").addEventListener("click", () => {
   document.getElementById("folder-title-input").focus();
 });
 
+document.getElementById("sctx-add-note")?.addEventListener("click", () => {
+  spaceContextMenu.hidePopover();
+  openNoteDialog(null, "root");
+});
+
+document.getElementById("sctx-upload-md")?.addEventListener("click", () => {
+  spaceContextMenu.hidePopover();
+  noteDialogParentId = "root";
+  markdownFileInput.click();
+});
+
 document.getElementById("sctx-paste-link").addEventListener("click", async () => {
   spaceContextMenu.hidePopover();
   try {
@@ -837,6 +998,7 @@ document.getElementById("sctx-paste-link").addEventListener("click", async () =>
 // ITEM CONTEXT MENU ACTIONS
 // ─────────────────────────────────────────────────────────────────────
 
+// Item context menu actions
 document.getElementById("ctx-add-link").addEventListener("click", () => {
   itemContextMenu.hidePopover();
   linkDialogParentId = contextMenuTargetId;
@@ -845,6 +1007,17 @@ document.getElementById("ctx-add-link").addEventListener("click", () => {
   document.getElementById("link-dialog-title").textContent = `Add Link in ${workspaceItems[contextMenuTargetId]?.title || "folder"}`;
   linkDialog.showModal();
   setTimeout(() => document.getElementById("link-url-input").focus(), 50);
+});
+
+document.getElementById("ctx-add-note")?.addEventListener("click", () => {
+  itemContextMenu.hidePopover();
+  openNoteDialog(null, contextMenuTargetId);
+});
+
+document.getElementById("ctx-upload-md")?.addEventListener("click", () => {
+  itemContextMenu.hidePopover();
+  noteDialogParentId = contextMenuTargetId;
+  markdownFileInput.click();
 });
 
 document.getElementById("ctx-add-subfolder").addEventListener("click", () => {
@@ -864,8 +1037,16 @@ document.getElementById("ctx-share").addEventListener("click", () => {
 document.getElementById("ctx-copy-link").addEventListener("click", () => {
   itemContextMenu.hidePopover();
   const item = workspaceItems[contextMenuTargetId];
-  if (item?.url) {
+  if (!item) return;
+  if (item.url) {
     navigator.clipboard.writeText(item.url).catch(() => {});
+  } else if (item.type === "note") {
+    // Generate single note share URL if inside shared folder or workspace
+    const sharedVia = item.sharedVia;
+    if (sharedVia) {
+      const shareUrl = `${window.location.origin}${window.location.pathname}?share=${activeWorkspaceId}&folder=${sharedVia}&item=${item.id}`;
+      navigator.clipboard.writeText(shareUrl).catch(() => {});
+    }
   }
 });
 
@@ -994,6 +1175,112 @@ linkDialog.querySelector("form").addEventListener("submit", async (e) => {
   } catch (err) {
     console.error("Create link failed:", err);
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// NOTE DIALOG & MARKDOWN UPLOADER
+// ─────────────────────────────────────────────────────────────────────
+
+function openNoteDialog(noteId = null, parentId = "root") {
+  editingNoteId = noteId;
+  noteDialogParentId = parentId;
+
+  const dialogTitle   = document.getElementById("note-dialog-title");
+  const titleInput    = document.getElementById("note-title-input");
+  const contentInput  = document.getElementById("note-content-input");
+
+  if (noteId && workspaceItems[noteId]) {
+    const item = workspaceItems[noteId];
+    dialogTitle.textContent = "Edit Note";
+    titleInput.value   = item.title;
+    contentInput.value = item.content || "";
+  } else {
+    dialogTitle.textContent = "New Note";
+    titleInput.value   = "";
+    contentInput.value = "";
+  }
+
+  noteDialog.showModal();
+  setTimeout(() => titleInput.focus(), 50);
+}
+
+document.getElementById("note-cancel-btn")?.addEventListener("click", () => noteDialog.close());
+
+noteDialog?.querySelector("form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const title   = document.getElementById("note-title-input").value.trim();
+  const content = document.getElementById("note-content-input").value;
+  if (!title) return;
+
+  if (editingNoteId && workspaceItems[editingNoteId]) {
+    // Edit existing note
+    try {
+      await updateDoc(doc(db, "workspaces", activeWorkspaceId, "items", editingNoteId), {
+        title,
+        content
+      });
+      noteDialog.close();
+    } catch (err) {
+      console.error("Update note failed:", err);
+    }
+  } else {
+    // Create new note
+    try {
+      await createNoteItem(title, content, noteDialogParentId);
+      noteDialog.close();
+    } catch (err) {
+      console.error("Create note failed:", err);
+    }
+  }
+});
+
+async function createNoteItem(title, content, parentId) {
+  const noteId    = generateUUID();
+  const batch     = writeBatch(db);
+  const sharedVia = parentId === "root" ? null : (workspaceItems[parentId]?.sharedVia || null);
+
+  const noteDoc = {
+    id: noteId,
+    parentId,
+    type: "note",
+    title,
+    content: content || "",
+    createdAt: Date.now(),
+    ...(sharedVia ? { sharedVia } : {})
+  };
+
+  batch.set(doc(db, "workspaces", activeWorkspaceId, "items", noteId), noteDoc);
+
+  if (parentId === "root") {
+    batch.update(doc(db, "workspaces", activeWorkspaceId), {
+      childrenIds: [...(activeWorkspace.childrenIds || []), noteId]
+    });
+  } else {
+    const parent = workspaceItems[parentId];
+    batch.update(doc(db, "workspaces", activeWorkspaceId, "items", parentId), {
+      childrenIds: [...(parent?.childrenIds || []), noteId]
+    });
+  }
+
+  await batch.commit();
+}
+
+markdownFileInput?.addEventListener("change", (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = async (evt) => {
+    const text  = evt.target.result || "";
+    const title = file.name || "Untitled Note.md";
+    try {
+      await createNoteItem(title, text, noteDialogParentId);
+    } catch (err) {
+      console.error("Upload markdown failed:", err);
+    }
+    markdownFileInput.value = "";
+  };
+  reader.readAsText(file);
 });
 
 // ─────────────────────────────────────────────────────────────────────

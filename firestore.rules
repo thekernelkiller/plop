@@ -45,14 +45,15 @@ service cloud.firestore {
 
     function isValidLinkItem(data) {
       return data.keys().hasAll(['id', 'parentId', 'type', 'title', 'createdAt']) &&
-             data.keys().hasOnly(['id', 'parentId', 'type', 'title', 'url',
+             data.keys().hasOnly(['id', 'parentId', 'type', 'title', 'url', 'content',
                                   'childrenIds', 'createdAt', 'sharedVia']) &&
              isValidString(data.id, 36, 36) &&
              isValidString(data.parentId, 1, 100) &&
-             data.type in ['folder', 'link'] &&
+             data.type in ['folder', 'link', 'note'] &&
              isValidString(data.title, 1, 200) &&
              data.createdAt is number &&
-             (!('url' in data)      || isValidUrl(data.url)) &&
+             (!('url' in data)     || isValidUrl(data.url)) &&
+             (!('content' in data) || isValidString(data.content, 0, 100000)) &&
              (!('childrenIds' in data) ||
               (data.childrenIds is list && data.childrenIds.size() <= 500)) &&
              (!('sharedVia' in data) || isValidString(data.sharedVia, 36, 36));
@@ -61,11 +62,13 @@ service cloud.firestore {
     function isValidLinkItemUpdate(data) {
       let changed = request.resource.data.diff(resource.data).affectedKeys();
       return !changed.hasAny(['id', 'createdAt', 'type']) &&
-             changed.hasOnly(['parentId', 'title', 'url', 'childrenIds', 'sharedVia']) &&
+             changed.hasOnly(['parentId', 'title', 'url', 'content', 'childrenIds', 'sharedVia']) &&
              (!changed.hasAll(['title'])    || isValidString(data.title, 1, 200)) &&
              (!changed.hasAll(['parentId']) || isValidString(data.parentId, 1, 100)) &&
              (!changed.hasAll(['url']) ||
               !('url' in data) || isValidUrl(data.url)) &&
+             (!changed.hasAll(['content']) ||
+              !('content' in data) || isValidString(data.content, 0, 100000)) &&
              (!changed.hasAll(['childrenIds']) ||
               !('childrenIds' in data) ||
               (data.childrenIds is list && data.childrenIds.size() <= 500)) &&

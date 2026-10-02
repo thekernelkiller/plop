@@ -733,6 +733,12 @@ body {
   white-space: nowrap;
 }
 
+.preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .action-btn-primary {
   background: var(--color-primary);
   color: #FFFFFF;
@@ -755,6 +761,27 @@ body {
   background: var(--color-primary-hover);
 }
 
+.action-btn-secondary {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  border: 1px solid rgba(49, 57, 251, 0.15);
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.action-btn-secondary:hover {
+  background: rgba(49, 57, 251, 0.15);
+}
+
 .preview-content {
   flex-grow: 1;
   position: relative;
@@ -766,6 +793,140 @@ body {
   height: 100%;
   border: none;
   display: block;
+}
+
+/* Markdown Note View */
+.note-preview-container {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  padding: 40px 60px;
+  background: #FFFFFF;
+  z-index: 5;
+}
+
+.note-markdown-body {
+  max-width: 800px;
+  margin: 0 auto;
+  font-family: var(--font-sans);
+  color: var(--color-text);
+  line-height: 1.7;
+  font-size: 15px;
+}
+
+.note-markdown-body h1 {
+  font-size: 28px;
+  font-weight: 800;
+  margin-top: 0;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--color-text);
+}
+
+.note-markdown-body h2 {
+  font-size: 22px;
+  font-weight: 700;
+  margin-top: 28px;
+  margin-bottom: 14px;
+}
+
+.note-markdown-body h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-top: 24px;
+  margin-bottom: 12px;
+}
+
+.note-markdown-body p {
+  margin-bottom: 16px;
+}
+
+.note-markdown-body ul, .note-markdown-body ol {
+  margin-bottom: 16px;
+  padding-left: 24px;
+}
+
+.note-markdown-body li {
+  margin-bottom: 6px;
+}
+
+.note-markdown-body blockquote {
+  border-left: 4px solid var(--color-primary);
+  background: var(--color-primary-light);
+  padding: 12px 18px;
+  margin: 18px 0;
+  border-radius: 0 8px 8px 0;
+  color: var(--color-text);
+}
+
+.note-markdown-body code {
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.note-markdown-body pre {
+  background: #1E1E2E;
+  color: #CDD6F4;
+  padding: 16px 20px;
+  border-radius: 12px;
+  overflow-x: auto;
+  margin: 20px 0;
+}
+
+.note-markdown-body pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+.note-markdown-body a {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
+.note-markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 20px 0;
+}
+
+.note-markdown-body th, .note-markdown-body td {
+  border: 1px solid var(--border-color);
+  padding: 10px 14px;
+  text-align: left;
+}
+
+.note-markdown-body th {
+  background: var(--bg-hover);
+  font-weight: 600;
+}
+
+/* Dialog large for Markdown editing */
+.dialog-large {
+  width: 620px;
+  max-width: 90vw;
+}
+
+.code-textarea {
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  resize: vertical;
+  line-height: 1.5;
+  background: var(--bg-card);
+  color: var(--color-text);
+}
+
+.code-textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
 }
 
 .iframe-warning {
@@ -795,9 +956,16 @@ body {
 .iframe-warning p {
   font-size: 14px;
   color: var(--color-text-muted);
-  max-width: 360px;
+  max-width: 420px;
   line-height: 1.5;
   margin-bottom: 24px;
+}
+
+.warning-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
 }
 
 .warning-btn {
