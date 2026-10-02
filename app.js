@@ -79,6 +79,7 @@ const activeUrl            = document.getElementById("active-url");
 const activeLinkOpen       = document.getElementById("active-link-open");
 const activeLinkOpenWarn   = document.getElementById("active-link-open-warning");
 const previewIframe        = document.getElementById("preview-iframe");
+const previewToggleViewer  = document.getElementById("preview-toggle-viewer");
 const iframeBlockedWarn    = document.getElementById("iframe-blocked-warning");
 const dropIndicator        = document.getElementById("drop-indicator");
 
@@ -1335,13 +1336,13 @@ noteDialog?.querySelector("form")?.addEventListener("submit", async (e) => {
   } else {
     // Create new note
     try {
-      const newNoteId = await createNoteItem(title, content, noteDialogParentId);
+      const { noteId: newNoteId, noteDoc } = await createNoteItem(title, content, noteDialogParentId);
+      // Optimistically add to local cache so preview works immediately (before snapshot fires)
+      workspaceItems[newNoteId] = noteDoc;
+      selectedItemId = newNoteId;
       showToast("Note created successfully!", "success");
       noteDialog.close();
-      if (newNoteId && workspaceItems[newNoteId]) {
-        selectedItemId = newNoteId;
-        showPreviewState(workspaceItems[newNoteId]);
-      }
+      showPreviewState(noteDoc);
     } catch (err) {
       console.error("Create note failed:", err);
       showToast("Failed to create note: " + err.message, "error");
@@ -1380,7 +1381,9 @@ async function createNoteItem(title, content, parentId) {
   }
 
   await batch.commit();
-  return noteId;
+  // Return both the ID and the constructed doc so callers can optimistically
+  // show the preview before the onSnapshot fires
+  return { noteId, noteDoc };
 }
 
 markdownFileInput?.addEventListener("change", (e) => {
@@ -1394,13 +1397,13 @@ markdownFileInput?.addEventListener("change", (e) => {
     const text  = evt.target.result || "";
     const title = file.name || "Untitled Note.md";
     try {
-      const newNoteId = await createNoteItem(title, text, noteDialogParentId);
+      const { noteId: newNoteId, noteDoc } = await createNoteItem(title, text, noteDialogParentId);
+      // Optimistically add to local cache so preview works immediately (before snapshot fires)
+      workspaceItems[newNoteId] = noteDoc;
+      selectedItemId = newNoteId;
       toast.remove();
       showToast(`Uploaded "${title}" successfully!`, "success");
-      if (newNoteId && workspaceItems[newNoteId]) {
-        selectedItemId = newNoteId;
-        showPreviewState(workspaceItems[newNoteId]);
-      }
+      showPreviewState(noteDoc);
     } catch (err) {
       toast.remove();
       console.error("Upload markdown failed:", err);
