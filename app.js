@@ -880,12 +880,14 @@ function showContextMenu(itemId, clientX, clientY, itemType) {
   const item = workspaceItems[itemId];
 
   // Visibility of menu items based on item type
-  document.getElementById("ctx-add-link").classList.toggle("hidden",    !isFolder);
-  document.getElementById("ctx-add-subfolder").classList.toggle("hidden", !isFolder);
-  document.getElementById("ctx-share").classList.toggle("hidden",        !isFolder);
-  document.getElementById("ctx-copy-link").classList.toggle("hidden",    isFolder);
+  document.getElementById("ctx-add-link")?.classList.toggle("hidden",      !isFolder);
+  document.getElementById("ctx-add-note")?.classList.toggle("hidden",      !isFolder);
+  document.getElementById("ctx-upload-md")?.classList.toggle("hidden",     !isFolder);
+  document.getElementById("ctx-add-subfolder")?.classList.toggle("hidden", !isFolder);
+  document.getElementById("ctx-share")?.classList.toggle("hidden",        !isFolder);
+  document.getElementById("ctx-copy-link")?.classList.toggle("hidden",    isFolder);
 
-  // Label: "Rename" for folders, "Edit" for links
+  // Label: "Rename" for folders, "Edit" for links & notes
   document.getElementById("ctx-rename-label").textContent = isFolder ? "Rename" : "Edit";
 
   positionPopover(itemContextMenu, clientX, clientY);
@@ -1011,12 +1013,15 @@ document.getElementById("ctx-add-link").addEventListener("click", () => {
 
 document.getElementById("ctx-add-note")?.addEventListener("click", () => {
   itemContextMenu.hidePopover();
-  openNoteDialog(null, contextMenuTargetId);
+  const parentId = contextMenuTargetId && workspaceItems[contextMenuTargetId]?.type === "folder"
+    ? contextMenuTargetId : "root";
+  openNoteDialog(null, parentId);
 });
 
 document.getElementById("ctx-upload-md")?.addEventListener("click", () => {
   itemContextMenu.hidePopover();
-  noteDialogParentId = contextMenuTargetId;
+  noteDialogParentId = contextMenuTargetId && workspaceItems[contextMenuTargetId]?.type === "folder"
+    ? contextMenuTargetId : "root";
   markdownFileInput.click();
 });
 
@@ -1052,7 +1057,12 @@ document.getElementById("ctx-copy-link").addEventListener("click", () => {
 
 document.getElementById("ctx-rename").addEventListener("click", () => {
   itemContextMenu.hidePopover();
-  openEditDialog(contextMenuTargetId);
+  const item = workspaceItems[contextMenuTargetId];
+  if (item?.type === "note") {
+    openNoteDialog(contextMenuTargetId);
+  } else {
+    openEditDialog(contextMenuTargetId);
+  }
 });
 
 document.getElementById("ctx-delete").addEventListener("click", () => {
@@ -1183,7 +1193,7 @@ linkDialog.querySelector("form").addEventListener("submit", async (e) => {
 
 function openNoteDialog(noteId = null, parentId = "root") {
   editingNoteId = noteId;
-  noteDialogParentId = parentId;
+  noteDialogParentId = parentId && workspaceItems[parentId]?.type === "folder" ? parentId : "root";
 
   const dialogTitle   = document.getElementById("note-dialog-title");
   const titleInput    = document.getElementById("note-title-input");
@@ -1191,17 +1201,17 @@ function openNoteDialog(noteId = null, parentId = "root") {
 
   if (noteId && workspaceItems[noteId]) {
     const item = workspaceItems[noteId];
-    dialogTitle.textContent = "Edit Note";
-    titleInput.value   = item.title;
-    contentInput.value = item.content || "";
+    if (dialogTitle)  dialogTitle.textContent = "Edit Note";
+    if (titleInput)   titleInput.value   = item.title || "";
+    if (contentInput) contentInput.value = item.content || "";
   } else {
-    dialogTitle.textContent = "New Note";
-    titleInput.value   = "";
-    contentInput.value = "";
+    if (dialogTitle)  dialogTitle.textContent = "New Note";
+    if (titleInput)   titleInput.value   = "";
+    if (contentInput) contentInput.value = "";
   }
 
-  noteDialog.showModal();
-  setTimeout(() => titleInput.focus(), 50);
+  try { noteDialog.showModal(); } catch (err) { console.error("Note modal error:", err); }
+  setTimeout(() => titleInput?.focus(), 50);
 }
 
 document.getElementById("note-cancel-btn")?.addEventListener("click", () => noteDialog.close());
