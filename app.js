@@ -131,7 +131,6 @@ const activeNoteEditBtn    = document.getElementById("active-note-edit-btn");
 const activeNoteShareBtn   = document.getElementById("active-note-share-btn");
 const activeNoteSaveBtn    = document.getElementById("active-note-save-btn");
 const activeNoteDiscardBtn = document.getElementById("active-note-discard-btn");
-const activeCopyUrlBtn     = document.getElementById("active-copy-url-btn");
 const noteShareDialog      = document.getElementById("note-share-dialog");
 
 let noteDialogParentId = "root";
@@ -735,7 +734,6 @@ function showPreviewState(item) {
     noteInlineTitleInput.classList.add("hidden");
     activeLinkOpen.classList.add("hidden");
     if (previewToggleViewer) previewToggleViewer.classList.add("hidden");
-    if (activeCopyUrlBtn) activeCopyUrlBtn.classList.remove("hidden");
     
     // Only show Edit & Share buttons for the workspace owner, not for viewers
     if (activeNoteEditBtn) activeNoteEditBtn.classList.toggle("hidden", isSharedView);
@@ -762,7 +760,6 @@ function showPreviewState(item) {
     noteInlineTitleInput.classList.add("hidden");
     activeLinkOpen.classList.remove("hidden");
     if (previewToggleViewer) previewToggleViewer.classList.remove("hidden");
-    if (activeCopyUrlBtn) activeCopyUrlBtn.classList.remove("hidden");
     if (activeNoteEditBtn) activeNoteEditBtn.classList.add("hidden");
     if (activeNoteShareBtn) activeNoteShareBtn.classList.add("hidden");
     if (activeNoteSaveBtn) activeNoteSaveBtn.classList.add("hidden");
@@ -808,7 +805,6 @@ function openInlineNoteEditor(noteId = null, parentId = "root") {
   if (activeNoteDiscardBtn) activeNoteDiscardBtn.classList.remove("hidden");
   if (activeNoteEditBtn) activeNoteEditBtn.classList.add("hidden");
   if (activeNoteShareBtn) activeNoteShareBtn.classList.add("hidden");
-  if (activeCopyUrlBtn) activeCopyUrlBtn.classList.add("hidden");
   if (previewToggleViewer) previewToggleViewer.classList.add("hidden");
   if (activeLinkOpen) activeLinkOpen.classList.add("hidden");
 
@@ -933,7 +929,6 @@ function copyCurrentPreviewLink() {
   }
 }
 
-activeCopyUrlBtn?.addEventListener("click", copyCurrentPreviewLink);
 urlBarCopyBtn?.addEventListener("click", copyCurrentPreviewLink);
 
 document.getElementById("preview-toggle-viewer")?.addEventListener("click", () => {
