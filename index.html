@@ -157,36 +157,78 @@
 
       <div id="preview-state" class="viewport-card preview-card hidden">
         <div class="preview-header">
-          <button id="preview-back-btn" class="icon-btn back-btn" title="Back to List">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <line x1="19" y1="12" x2="5" y2="12"/>
-              <polyline points="12 19 5 12 12 5"/>
-            </svg>
-          </button>
-          <div class="preview-title-bar">
+          <div class="preview-header-left">
+            <button id="preview-back-btn" class="icon-btn back-btn" title="Back to List">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <line x1="19" y1="12" x2="5" y2="12"/>
+                <polyline points="12 19 5 12 12 5"/>
+              </svg>
+            </button>
             <img id="active-favicon" class="active-favicon" src="" alt="">
-            <div class="active-meta">
-              <h2 id="active-title">Loading Page...</h2>
-              <span id="active-url">https://example.com</span>
-            </div>
+            <span id="active-title" class="active-title-text">Loading Page...</span>
           </div>
+
+          <!-- Center: Sleek URL Bar (for Links) / Note Title (for Notes) -->
+          <div class="preview-header-center">
+            <div id="sleek-url-bar" class="sleek-url-bar">
+              <svg class="url-lock-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              <span id="active-url">https://example.com</span>
+              <button id="url-bar-copy-btn" class="url-copy-icon-btn" title="Copy URL">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+              </button>
+            </div>
+            <!-- Note Title Input (shown during note creation or inline editing) -->
+            <input id="note-inline-title-input" class="note-inline-title-input hidden" type="text" placeholder="Note Title...">
+          </div>
+
+          <!-- Right: Sleek Action Icons -->
           <div class="preview-actions">
-            <button id="active-note-edit-btn" class="action-btn-secondary hidden" title="Edit this Markdown note">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <!-- Note edit / save / share buttons -->
+            <button id="active-note-edit-btn" class="icon-btn action-icon-btn hidden" title="Edit Note">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
               </svg>
-              <span>Edit Note</span>
             </button>
-            <button id="preview-toggle-viewer" class="action-btn-secondary" title="Switch view mode between direct URL and Web/PDF Viewer">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <button id="active-note-share-btn" class="icon-btn action-icon-btn hidden" title="Share Note">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+              </svg>
+            </button>
+            <button id="active-note-save-btn" class="btn btn-primary btn-sm hidden" title="Save Note (Cmd+S)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+              <span>Save</span>
+            </button>
+            <button id="active-note-discard-btn" class="btn btn-secondary btn-sm hidden" title="Discard Changes">
+              <span>Cancel</span>
+            </button>
+
+            <!-- Link actions: copy, web/pdf viewer toggle, open in new tab -->
+            <button id="active-copy-url-btn" class="icon-btn action-icon-btn" title="Copy URL">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+              </svg>
+            </button>
+            <button id="preview-toggle-viewer" class="icon-btn action-icon-btn" title="Toggle Web / PDF Viewer">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                 <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
               </svg>
-              <span id="viewer-toggle-label">Web / PDF Viewer</span>
             </button>
-            <a id="active-link-open" href="#" target="_blank" class="action-btn-primary">
-              <span>Open Link</span>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <a id="active-link-open" href="#" target="_blank" class="icon-btn action-icon-btn" title="Open Link in New Tab">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/>
               </svg>
             </a>
@@ -196,9 +238,14 @@
           <!-- Embedded WebView Frame -->
           <iframe id="preview-iframe" src=""></iframe>
           
-          <!-- Rendered Markdown Document Container -->
+          <!-- Rendered Markdown Document / Editor Container -->
           <div id="note-preview-container" class="note-preview-container hidden">
+            <!-- Rendered preview mode -->
             <div id="note-rendered-content" class="note-markdown-body"></div>
+            <!-- Inline editor mode -->
+            <div id="note-editor-wrapper" class="note-editor-wrapper hidden">
+              <textarea id="note-inline-editor" class="note-inline-editor" placeholder="Type your markdown note here... (Cmd+S / Ctrl+S to save)"></textarea>
+            </div>
           </div>
           
           <!-- Embedded block warning overlay -->
@@ -260,7 +307,15 @@
         <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
         <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
       </svg>
-      <span>Share Folder</span>
+      <span id="ctx-share-label">Share Folder</span>
+    </button>
+    <button class="menu-item" id="ctx-share-note">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+      </svg>
+      <span>Share Note</span>
     </button>
     <button class="menu-item" id="ctx-copy-link">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -539,6 +594,37 @@
       <div class="dialog-actions">
         <button type="button" class="btn btn-secondary" id="signout-confirm-cancel-btn">Cancel</button>
         <button type="button" class="btn btn-primary" id="signout-confirm-btn">Sign Out</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Share Note Dialog -->
+  <dialog id="note-share-dialog" class="custom-dialog">
+    <div class="dialog-content">
+      <h3>Share Note</h3>
+      <p class="dialog-desc" id="note-share-desc">Generate a public link to this note. Anyone with the link can view it.</p>
+
+      <div class="share-toggle-container">
+        <label class="switch-label">
+          <span>Public Sharing</span>
+          <div class="switch">
+            <input type="checkbox" id="note-share-toggle">
+            <span class="slider"></span>
+          </div>
+        </label>
+      </div>
+
+      <div id="note-share-link-section" class="share-link-section hidden">
+        <label for="note-share-link-input">Public Note Link</label>
+        <div class="copy-input-group">
+          <input type="text" id="note-share-link-input" readonly value="">
+          <button id="note-copy-link-btn" class="btn btn-primary">Copy</button>
+        </div>
+        <span class="share-hint">Anyone with this link can view this note.</span>
+      </div>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary" id="note-share-close-btn">Close</button>
       </div>
     </div>
   </dialog>

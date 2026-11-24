@@ -65,6 +65,26 @@ let sharedFolderData    = null;  // data from /sharedFolders/{id}
 let draggedItemId    = null;
 let currentDropTarget = null; // { id, zone: 'before'|'after'|'inside' }
 
+// Collapsed folder state — persisted across re-renders & localStorage
+const collapsedFolderIds = new Set();
+
+function saveCollapsedState() {
+  if (!activeWorkspaceId) return;
+  try {
+    localStorage.setItem(`lf_collapsed_${activeWorkspaceId}`, JSON.stringify([...collapsedFolderIds]));
+  } catch {}
+}
+
+function loadCollapsedState(wsId) {
+  collapsedFolderIds.clear();
+  try {
+    const raw = localStorage.getItem(`lf_collapsed_${wsId}`);
+    if (raw) {
+      JSON.parse(raw).forEach(id => collapsedFolderIds.add(id));
+    }
+  } catch {}
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // DOM REFERENCES
 // ─────────────────────────────────────────────────────────────────────
@@ -97,12 +117,22 @@ const signoutConfirmDialog = document.getElementById("signout-confirm-dialog");
 const itemContextMenu  = document.getElementById("item-context-menu");
 const spaceContextMenu = document.getElementById("space-context-menu");
 
-// Note elements
+// Note elements & Browser Bar elements
+const sleekUrlBar          = document.getElementById("sleek-url-bar");
+const urlBarCopyBtn        = document.getElementById("url-bar-copy-btn");
+const noteInlineTitleInput = document.getElementById("note-inline-title-input");
+const noteEditorWrapper    = document.getElementById("note-editor-wrapper");
 const noteDialog           = document.getElementById("note-dialog");
 const markdownFileInput    = document.getElementById("markdown-file-input");
 const notePreviewContainer = document.getElementById("note-preview-container");
 const noteRenderedContent  = document.getElementById("note-rendered-content");
+const noteInlineEditor     = document.getElementById("note-inline-editor");
 const activeNoteEditBtn    = document.getElementById("active-note-edit-btn");
+const activeNoteShareBtn   = document.getElementById("active-note-share-btn");
+const activeNoteSaveBtn    = document.getElementById("active-note-save-btn");
+const activeNoteDiscardBtn = document.getElementById("active-note-discard-btn");
+const activeCopyUrlBtn     = document.getElementById("active-copy-url-btn");
+const noteShareDialog      = document.getElementById("note-share-dialog");
 
 let noteDialogParentId = "root";
 let editingNoteId      = null;
@@ -117,10 +147,10 @@ onAuthStateChanged(auth, async (user) => {
     updateAccountUI();
 
     const urlParams = new URLSearchParams(window.location.search);
-    const sharedFolderId = urlParams.get("f");
+    const sharedId = urlParams.get("f") || urlParams.get("note");
 
-    if (sharedFolderId) {
-      await loadSharedFolderView(sharedFolderId);
+    if (sharedId) {
+      await loadSharedFolderView(sharedId);
     } else {
       await loadUserWorkspace();
     }
@@ -189,6 +219,7 @@ function loadWorkspace(wsId) {
   activeWorkspaceId  = wsId;
 
   localStorage.setItem(`lf_active_ws_${currentUser.uid}`, wsId);
+  loadCollapsedState(wsId);
 
   // Live workspace doc
   unsubWorkspace = onSnapshot(doc(db, "workspaces", wsId), (snap) => {
@@ -353,6 +384,14 @@ function renderTree(isOwner) {
     const rootFolder = workspaceItems[sharedRootFolderId];
     if (!rootFolder) return;
 
+    // If a single note was shared
+    if (rootFolder.type === "note") {
+      treeRoot.appendChild(renderNode(rootFolder, 0, false));
+      selectedItemId = rootFolder.id;
+      showPreviewState(rootFolder);
+      return;
+    }
+
     (rootFolder.childrenIds || []).forEach(childId => {
       const child = workspaceItems[childId];
       if (child) treeRoot.appendChild(renderNode(child, 0, false));
@@ -401,7 +440,8 @@ function renderTree(isOwner) {
 
 function renderNode(item, depth, isOwner) {
   const isFolder = item.type === "folder";
-  const isExpanded = item._expanded !== false; // default open
+  // Use persisted collapsed state; default open
+  const isExpanded = !collapsedFolderIds.has(item.id);
 
   const el = document.createElement("div");
   el.className = `tree-item${selectedItemId === item.id ? " selected" : ""}`;
@@ -422,6 +462,13 @@ function renderNode(item, depth, isOwner) {
       if (childCont?.classList.contains("folder-children")) {
         childCont.style.display = collapsed ? "none" : "";
       }
+      // Persist collapsed state so re-renders don't reset it
+      if (collapsed) {
+        collapsedFolderIds.add(item.id);
+      } else {
+        collapsedFolderIds.delete(item.id);
+      }
+      saveCollapsedState();
     });
   } else {
     toggleEl.className = "folder-toggle-spacer";
@@ -681,15 +728,26 @@ function showPreviewState(item) {
     // Show Markdown Note View
     activeFavicon.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237C3AED' stroke-width='2'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpolyline points='14 2 14 8 20 8'/%3E%3C/svg%3E";
     activeTitle.textContent = item.title;
-    activeUrl.textContent   = "Markdown Document";
+    activeUrl.textContent   = item.title || "Markdown Document";
+    
+    // Header elements
+    sleekUrlBar.classList.remove("hidden");
+    noteInlineTitleInput.classList.add("hidden");
     activeLinkOpen.classList.add("hidden");
     if (previewToggleViewer) previewToggleViewer.classList.add("hidden");
-    // Only show Edit button for the workspace owner, not for viewers
+    if (activeCopyUrlBtn) activeCopyUrlBtn.classList.remove("hidden");
+    
+    // Only show Edit & Share buttons for the workspace owner, not for viewers
     if (activeNoteEditBtn) activeNoteEditBtn.classList.toggle("hidden", isSharedView);
+    if (activeNoteShareBtn) activeNoteShareBtn.classList.toggle("hidden", isSharedView);
+    if (activeNoteSaveBtn) activeNoteSaveBtn.classList.add("hidden");
+    if (activeNoteDiscardBtn) activeNoteDiscardBtn.classList.add("hidden");
 
     previewIframe.classList.add("hidden");
     if (notePreviewContainer) {
       notePreviewContainer.classList.remove("hidden");
+      noteRenderedContent.classList.remove("hidden");
+      if (noteEditorWrapper) noteEditorWrapper.classList.add("hidden");
       noteRenderedContent.innerHTML = renderMarkdownToHtml(item.content || "");
     }
   } else {
@@ -698,9 +756,17 @@ function showPreviewState(item) {
     activeTitle.textContent = item.title || item.url;
     activeUrl.textContent   = item.url;
     activeLinkOpen.href     = item.url;
+    
+    // Header elements
+    sleekUrlBar.classList.remove("hidden");
+    noteInlineTitleInput.classList.add("hidden");
     activeLinkOpen.classList.remove("hidden");
     if (previewToggleViewer) previewToggleViewer.classList.remove("hidden");
+    if (activeCopyUrlBtn) activeCopyUrlBtn.classList.remove("hidden");
     if (activeNoteEditBtn) activeNoteEditBtn.classList.add("hidden");
+    if (activeNoteShareBtn) activeNoteShareBtn.classList.add("hidden");
+    if (activeNoteSaveBtn) activeNoteSaveBtn.classList.add("hidden");
+    if (activeNoteDiscardBtn) activeNoteDiscardBtn.classList.add("hidden");
 
     if (notePreviewContainer) notePreviewContainer.classList.add("hidden");
     previewIframe.classList.remove("hidden");
@@ -714,10 +780,161 @@ function showPreviewState(item) {
   }
 }
 
+// ── Lightweight In-Viewer Note Creation & Editor ──
+
+function openInlineNoteEditor(noteId = null, parentId = "root") {
+  if (isSharedView) return; // Viewers cannot edit
+
+  editingNoteId = noteId;
+  noteDialogParentId = (parentId && workspaceItems[parentId]?.type === "folder") ? parentId : "root";
+
+  emptyState.classList.add("hidden");
+  previewState.classList.remove("hidden");
+  if (iframeBlockedWarn) iframeBlockedWarn.classList.add("hidden");
+  previewIframe.classList.add("hidden");
+
+  // Show note container and editor wrapper
+  if (notePreviewContainer) notePreviewContainer.classList.remove("hidden");
+  if (noteRenderedContent) noteRenderedContent.classList.add("hidden");
+  if (noteEditorWrapper) noteEditorWrapper.classList.remove("hidden");
+
+  // In the header bar
+  activeFavicon.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237C3AED' stroke-width='2'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpolyline points='14 2 14 8 20 8'/%3E%3C/svg%3E";
+  sleekUrlBar.classList.add("hidden");
+  noteInlineTitleInput.classList.remove("hidden");
+
+  // Show Save & Cancel buttons; hide other actions
+  if (activeNoteSaveBtn) activeNoteSaveBtn.classList.remove("hidden");
+  if (activeNoteDiscardBtn) activeNoteDiscardBtn.classList.remove("hidden");
+  if (activeNoteEditBtn) activeNoteEditBtn.classList.add("hidden");
+  if (activeNoteShareBtn) activeNoteShareBtn.classList.add("hidden");
+  if (activeCopyUrlBtn) activeCopyUrlBtn.classList.add("hidden");
+  if (previewToggleViewer) previewToggleViewer.classList.add("hidden");
+  if (activeLinkOpen) activeLinkOpen.classList.add("hidden");
+
+  if (noteId && workspaceItems[noteId]) {
+    const item = workspaceItems[noteId];
+    currentPreviewItem = item;
+    activeTitle.textContent = item.title;
+    noteInlineTitleInput.value = item.title || "";
+    noteInlineEditor.value = item.content || "";
+    setTimeout(() => noteInlineEditor.focus(), 50);
+  } else {
+    currentPreviewItem = { id: null, type: "note", title: "", content: "", parentId: noteDialogParentId, isNew: true };
+    activeTitle.textContent = "New Note";
+    noteInlineTitleInput.value = "";
+    noteInlineEditor.value = "";
+    setTimeout(() => noteInlineTitleInput.focus(), 50);
+  }
+}
+
 activeNoteEditBtn?.addEventListener("click", () => {
   if (!currentPreviewItem || currentPreviewItem.type !== "note") return;
-  openNoteDialog(currentPreviewItem.id);
+  openInlineNoteEditor(currentPreviewItem.id);
 });
+
+activeNoteShareBtn?.addEventListener("click", () => {
+  if (!currentPreviewItem || currentPreviewItem.type !== "note") return;
+  openNoteShareDialog(currentPreviewItem.id);
+});
+
+activeNoteDiscardBtn?.addEventListener("click", () => {
+  if (editingNoteId && workspaceItems[editingNoteId]) {
+    showPreviewState(workspaceItems[editingNoteId]);
+  } else {
+    currentPreviewItem = null;
+    showEmptyState("Welcome to Plop", "Select a folder or link from the sidebar.");
+  }
+});
+
+activeNoteSaveBtn?.addEventListener("click", async () => {
+  const title = (noteInlineTitleInput?.value || "").trim() || "Untitled Note.md";
+  const content = noteInlineEditor?.value || "";
+
+  setButtonLoading(activeNoteSaveBtn, true, "Saving...");
+  try {
+    if (editingNoteId && workspaceItems[editingNoteId]) {
+      // Update existing note
+      await updateDoc(doc(db, "workspaces", activeWorkspaceId, "items", editingNoteId), {
+        title,
+        content
+      });
+      const updatedItem = { ...workspaceItems[editingNoteId], title, content };
+      workspaceItems[editingNoteId] = updatedItem;
+      currentPreviewItem = updatedItem;
+      showToast("Note saved!", "success");
+      showPreviewState(updatedItem);
+    } else {
+      // Create new note directly in viewer
+      const { noteId: newNoteId, noteDoc } = await createNoteItem(title, content, noteDialogParentId);
+      workspaceItems[newNoteId] = noteDoc;
+      selectedItemId = newNoteId;
+      currentPreviewItem = noteDoc;
+      showToast("Note created!", "success");
+      showPreviewState(noteDoc);
+    }
+  } catch (err) {
+    console.error("Save note error:", err);
+    showToast("Failed to save note: " + err.message, "error");
+  } finally {
+    setButtonLoading(activeNoteSaveBtn, false);
+  }
+});
+
+// Double click rendered note to quickly edit
+noteRenderedContent?.addEventListener("dblclick", () => {
+  if (isSharedView || !currentPreviewItem || currentPreviewItem.type !== "note") return;
+  openInlineNoteEditor(currentPreviewItem.id);
+});
+
+// Shortcuts inside editor: Cmd+S / Ctrl+S to save, Tab for indentation
+noteInlineEditor?.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+    e.preventDefault();
+    activeNoteSaveBtn.click();
+  }
+  if (e.key === "Tab") {
+    e.preventDefault();
+    const start = noteInlineEditor.selectionStart;
+    const end = noteInlineEditor.selectionEnd;
+    noteInlineEditor.value = noteInlineEditor.value.substring(0, start) + "  " + noteInlineEditor.value.substring(end);
+    noteInlineEditor.selectionStart = noteInlineEditor.selectionEnd = start + 2;
+  }
+});
+
+noteInlineTitleInput?.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+    e.preventDefault();
+    activeNoteSaveBtn.click();
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    noteInlineEditor.focus();
+  }
+});
+
+// Copy URL from header (both URL bar copy button & action icon)
+function copyCurrentPreviewLink() {
+  if (!currentPreviewItem) return;
+  if (currentPreviewItem.url) {
+    navigator.clipboard.writeText(currentPreviewItem.url)
+      .then(() => showToast("URL copied to clipboard!", "success"))
+      .catch(() => showToast("Could not access clipboard.", "error"));
+  } else if (currentPreviewItem.type === "note") {
+    if (currentPreviewItem.sharedVia) {
+      const shareUrl = `${window.location.origin}${window.location.pathname}?f=${currentPreviewItem.sharedVia}`;
+      navigator.clipboard.writeText(shareUrl)
+        .then(() => showToast("Note link copied to clipboard!", "success"))
+        .catch(() => showToast("Could not access clipboard.", "error"));
+    } else {
+      navigator.clipboard.writeText(currentPreviewItem.content || currentPreviewItem.title)
+        .then(() => showToast("Note content copied to clipboard!", "success"))
+        .catch(() => showToast("Could not access clipboard.", "error"));
+    }
+  }
+}
+
+activeCopyUrlBtn?.addEventListener("click", copyCurrentPreviewLink);
+urlBarCopyBtn?.addEventListener("click", copyCurrentPreviewLink);
 
 document.getElementById("preview-toggle-viewer")?.addEventListener("click", () => {
   if (!currentPreviewItem) return;
@@ -955,6 +1172,7 @@ function showContextMenu(itemId, clientX, clientY, itemType) {
   document.getElementById("ctx-upload-md")?.classList.toggle("hidden",     !isFolder);
   document.getElementById("ctx-add-subfolder")?.classList.toggle("hidden", !isFolder);
   document.getElementById("ctx-share")?.classList.toggle("hidden",        !isFolder);
+  document.getElementById("ctx-share-note")?.classList.toggle("hidden",   !isNote);
   document.getElementById("ctx-copy-link")?.classList.toggle("hidden",    isFolder);
 
   // In shared/viewer context: hide Edit and Delete for notes so viewers can't modify
@@ -1047,7 +1265,7 @@ document.getElementById("sctx-new-folder").addEventListener("click", () => {
 
 document.getElementById("sctx-add-note")?.addEventListener("click", () => {
   spaceContextMenu.hidePopover();
-  openNoteDialog(null, "root");
+  openInlineNoteEditor(null, "root");
 });
 
 document.getElementById("sctx-upload-md")?.addEventListener("click", () => {
@@ -1091,7 +1309,7 @@ document.getElementById("ctx-add-note")?.addEventListener("click", () => {
   itemContextMenu.hidePopover();
   const parentId = contextMenuTargetId && workspaceItems[contextMenuTargetId]?.type === "folder"
     ? contextMenuTargetId : "root";
-  openNoteDialog(null, parentId);
+  openInlineNoteEditor(null, parentId);
 });
 
 document.getElementById("ctx-upload-md")?.addEventListener("click", () => {
@@ -1115,6 +1333,11 @@ document.getElementById("ctx-share").addEventListener("click", () => {
   openFolderShareDialog(contextMenuTargetId);
 });
 
+document.getElementById("ctx-share-note")?.addEventListener("click", () => {
+  itemContextMenu.hidePopover();
+  openNoteShareDialog(contextMenuTargetId);
+});
+
 document.getElementById("ctx-copy-link").addEventListener("click", () => {
   itemContextMenu.hidePopover();
   const item = workspaceItems[contextMenuTargetId];
@@ -1126,16 +1349,17 @@ document.getElementById("ctx-copy-link").addEventListener("click", () => {
       .then(() => showToast("URL copied to clipboard!", "success"))
       .catch(() => showToast("Could not access clipboard.", "error"));
   } else if (item.type === "note") {
-    const sharedVia = item.sharedVia;
-    if (sharedVia) {
-      // Note is inside a shared folder — copy a deep-link to it
-      const shareUrl = `${window.location.origin}${window.location.pathname}?share=${activeWorkspaceId}&folder=${sharedVia}&item=${item.id}`;
+    if (item.sharedVia) {
+      // Note is shared — copy its public share link
+      const shareUrl = `${window.location.origin}${window.location.pathname}?f=${item.sharedVia}`;
       navigator.clipboard.writeText(shareUrl)
         .then(() => showToast("Note link copied to clipboard!", "success"))
         .catch(() => showToast("Could not access clipboard.", "error"));
     } else {
-      // Note is private — prompt the user to share its parent folder first
-      showToast("Share the parent folder first to get a shareable note link.", "info", 4000);
+      // Note is private — copy its markdown content
+      navigator.clipboard.writeText(item.content || item.title)
+        .then(() => showToast("Note content copied to clipboard!", "success"))
+        .catch(() => showToast("Could not access clipboard.", "error"));
     }
   }
 });
@@ -1144,7 +1368,7 @@ document.getElementById("ctx-rename").addEventListener("click", () => {
   itemContextMenu.hidePopover();
   const item = workspaceItems[contextMenuTargetId];
   if (item?.type === "note") {
-    openNoteDialog(contextMenuTargetId);
+    openInlineNoteEditor(contextMenuTargetId);
   } else {
     openEditDialog(contextMenuTargetId);
   }
@@ -1239,25 +1463,17 @@ document.getElementById("link-cancel-btn").addEventListener("click", () => linkD
 
 const linkSaveBtn = document.getElementById("link-save-btn");
 
-linkDialog.querySelector("form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const url   = document.getElementById("link-url-input").value.trim();
-  const title = document.getElementById("link-title-input").value.trim() || getDomain(url);
-  if (!url) return;
-
-  setButtonLoading(linkSaveBtn, true, "Saving...");
-
+// Shared helper — creates a link item in Firestore and returns { linkId, linkDoc }
+async function createLinkItem(url, title, parentId) {
   const linkId   = generateUUID();
-  const parentId = linkDialogParentId;
   const batch    = writeBatch(db);
-
   const sharedVia = parentId === "root" ? null : (workspaceItems[parentId]?.sharedVia || null);
 
   const linkDoc = {
     id: linkId,
     parentId,
     type: "link",
-    title,
+    title: title || getDomain(url),
     url,
     createdAt: Date.now(),
     ...(sharedVia ? { sharedVia } : {})
@@ -1276,14 +1492,29 @@ linkDialog.querySelector("form").addEventListener("submit", async (e) => {
     });
   }
 
+  await batch.commit();
+  return { linkId, linkDoc };
+}
+
+linkDialog.querySelector("form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const rawUrl = document.getElementById("link-url-input").value.trim();
+  const url    = normalizeUrl(rawUrl);
+  const title  = document.getElementById("link-title-input").value.trim();
+  if (!url) {
+    showToast("Please enter a valid URL.", "error");
+    return;
+  }
+
+  setButtonLoading(linkSaveBtn, true, "Saving...");
+
   try {
-    await batch.commit();
+    const { linkId, linkDoc } = await createLinkItem(url, title, linkDialogParentId);
     showToast("Link added!", "success");
     linkDialog.close();
+    workspaceItems[linkId] = linkDoc;
     selectedItemId = linkId;
-    if (workspaceItems[linkId]) {
-      showPreviewState(workspaceItems[linkId]);
-    }
+    showPreviewState(linkDoc);
   } catch (err) {
     console.error("Create link failed:", err);
     showToast("Failed to add link: " + err.message, "error");
@@ -1634,6 +1865,90 @@ async function setFolderSharing(folderId, enable) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// SHARE NOTE — individual note sharing via sharedFolders registry
+// ─────────────────────────────────────────────────────────────────────
+
+function openNoteShareDialog(noteId) {
+  contextMenuTargetId = noteId;
+  const item = workspaceItems[noteId];
+  const isShared = item?.sharedVia === noteId;
+
+  document.getElementById("note-share-desc").textContent =
+    `Make "${item?.title || "this note"}" publicly accessible. Anyone with the link can view it.`;
+
+  const toggle = document.getElementById("note-share-toggle");
+  toggle.checked = isShared;
+  updateNoteShareLinkSection(isShared, noteId);
+  noteShareDialog.showModal();
+}
+
+function updateNoteShareLinkSection(isShared, noteId) {
+  const section = document.getElementById("note-share-link-section");
+  if (isShared) {
+    section.classList.remove("hidden");
+    const shareUrl = `${window.location.origin}${window.location.pathname}?f=${noteId}`;
+    document.getElementById("note-share-link-input").value = shareUrl;
+  } else {
+    section.classList.add("hidden");
+  }
+}
+
+document.getElementById("note-share-toggle")?.addEventListener("change", async (e) => {
+  const noteId = contextMenuTargetId;
+  const enable = e.target.checked;
+  e.target.disabled = true;
+
+  try {
+    const item = workspaceItems[noteId];
+    if (!item) throw new Error("Note not found");
+
+    const batch = writeBatch(db);
+
+    if (enable) {
+      batch.set(doc(db, "sharedFolders", noteId), {
+        workspaceId: activeWorkspaceId,
+        ownerId:     currentUser.uid,
+        folderTitle: item.title,
+        authorName:  activeWorkspace?.authorName || currentUser.displayName || "guest",
+        themeColor:  activeWorkspace?.themeColor || "purple",
+        sharedAt:    serverTimestamp()
+      });
+      batch.update(doc(db, "workspaces", activeWorkspaceId, "items", noteId), {
+        sharedVia: noteId
+      });
+      item.sharedVia = noteId;
+    } else {
+      batch.delete(doc(db, "sharedFolders", noteId));
+      batch.update(doc(db, "workspaces", activeWorkspaceId, "items", noteId), {
+        sharedVia: deleteField()
+      });
+      delete item.sharedVia;
+    }
+
+    await batch.commit();
+    updateNoteShareLinkSection(enable, noteId);
+    showToast(enable ? "Public link created!" : "Public sharing disabled.", "success");
+  } catch (err) {
+    console.error("Note share toggle failed:", err);
+    e.target.checked = !enable;
+    showToast("Failed to update sharing: " + err.message, "error");
+  } finally {
+    e.target.disabled = false;
+  }
+});
+
+document.getElementById("note-copy-link-btn")?.addEventListener("click", () => {
+  const input = document.getElementById("note-share-link-input");
+  navigator.clipboard.writeText(input.value).then(() => {
+    const btn = document.getElementById("note-copy-link-btn");
+    btn.textContent = "Copied!";
+    setTimeout(() => { btn.textContent = "Copy"; }, 2000);
+  });
+});
+
+document.getElementById("note-share-close-btn")?.addEventListener("click", () => noteShareDialog.close());
+
+// ─────────────────────────────────────────────────────────────────────
 // WORKSPACE SETTINGS DIALOG
 // ─────────────────────────────────────────────────────────────────────
 
@@ -1790,18 +2105,70 @@ window.addEventListener("keydown", async (e) => {
 
   try {
     const text = await navigator.clipboard.readText();
-    if (!text || !isValidUrl(text)) return;
+    if (!text) return;
+
+    const urls = parseUrlsFromText(text);
+    if (urls.length === 0) return;
 
     const parentId = selectedItemId && workspaceItems[selectedItemId]?.type === "folder"
       ? selectedItemId : "root";
-
-    linkDialogParentId = parentId;
-    document.getElementById("link-url-input").value   = text;
-    document.getElementById("link-title-input").value = "";
     const parentName = parentId === "root" ? "workspace" : (workspaceItems[parentId]?.title || "folder");
-    document.getElementById("link-dialog-title").textContent = `Add Link in ${parentName}`;
-    linkDialog.showModal();
-    setTimeout(() => document.getElementById("link-title-input").focus(), 50);
+
+    if (urls.length === 1) {
+      // Single URL — open dialog pre-filled with normalized URL
+      linkDialogParentId = parentId;
+      document.getElementById("link-url-input").value   = urls[0];
+      document.getElementById("link-title-input").value = "";
+      document.getElementById("link-dialog-title").textContent = `Add Link in ${parentName}`;
+      linkDialog.showModal();
+      setTimeout(() => document.getElementById("link-title-input").focus(), 50);
+    } else {
+      // Multiple URLs — bulk add into target folder/root
+      const toast = showToast(`Adding ${urls.length} links to ${parentName}…`, "loading", 0);
+      try {
+        const batch = writeBatch(db);
+        const newLinkIds = [];
+        const sharedVia = parentId === "root" ? null : (workspaceItems[parentId]?.sharedVia || null);
+
+        for (const url of urls) {
+          const linkId = generateUUID();
+          newLinkIds.push(linkId);
+          const linkDoc = {
+            id: linkId,
+            parentId,
+            type: "link",
+            title: getDomain(url),
+            url,
+            createdAt: Date.now(),
+            ...(sharedVia ? { sharedVia } : {})
+          };
+          batch.set(doc(db, "workspaces", activeWorkspaceId, "items", linkId), linkDoc);
+          workspaceItems[linkId] = linkDoc; // Optimistic update
+        }
+
+        if (parentId === "root") {
+          batch.update(doc(db, "workspaces", activeWorkspaceId), {
+            childrenIds: [...(activeWorkspace.childrenIds || []), ...newLinkIds]
+          });
+        } else {
+          const parent = workspaceItems[parentId];
+          batch.update(doc(db, "workspaces", activeWorkspaceId, "items", parentId), {
+            childrenIds: [...(parent?.childrenIds || []), ...newLinkIds]
+          });
+          // Ensure target folder is open, all others preserve collapsed state
+          collapsedFolderIds.delete(parentId);
+          saveCollapsedState();
+        }
+
+        await batch.commit();
+        toast.remove();
+        showToast(`Added ${urls.length} links!`, "success");
+      } catch (err) {
+        toast.remove();
+        console.error("Bulk add failed:", err);
+        showToast("Bulk add failed: " + err.message, "error");
+      }
+    }
   } catch { /* clipboard denied */ }
 });
 
@@ -1821,8 +2188,46 @@ function getDomain(url) {
 }
 
 function isValidUrl(str) {
-  try { const u = new URL(str); return u.protocol === "http:" || u.protocol === "https:"; }
-  catch { return false; }
+  try {
+    const u = new URL(str);
+    return (u.protocol === "http:" || u.protocol === "https:") && Boolean(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
+// Normalise user-typed string (e.g. example.com, www.example.com, hello.example.com)
+function normalizeUrl(str) {
+  if (!str) return null;
+  const trimmed = str.trim().replace(/^[<"']|[>"']$/g, "");
+  if (!trimmed) return null;
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return isValidUrl(trimmed) ? trimmed : null;
+  }
+
+  // Must contain a dot and no spaces
+  if (/^[a-zA-Z0-9][-a-zA-Z0-9]*(\.[a-zA-Z0-9][-a-zA-Z0-9]*)+(:[0-9]+)?(\/.*)?$/i.test(trimmed) ||
+      /^localhost(:[0-9]+)?(\/.*)?$/i.test(trimmed)) {
+    const candidate = "https://" + trimmed;
+    return isValidUrl(candidate) ? candidate : null;
+  }
+
+  return null;
+}
+
+// Parse text separated by newlines, commas, semicolons, or spaces into valid URLs
+function parseUrlsFromText(text) {
+  if (!text) return [];
+  const tokens = text.split(/[\r\n,;\s]+/).map(s => s.trim()).filter(Boolean);
+  const results = [];
+  for (const token of tokens) {
+    const normalized = normalizeUrl(token);
+    if (normalized && !results.includes(normalized)) {
+      results.push(normalized);
+    }
+  }
+  return results;
 }
 
 // Returns true if `targetId` is a descendant of `ancestorId`
