@@ -86,8 +86,9 @@ export function renderMarkdown(container, source) {
     link.target = "_blank";
     link.rel = "noopener noreferrer";
   }
-  if (container.querySelector("[data-math]")) renderMath(container);
-  for (const code of container.querySelectorAll("[data-mermaid]")) renderDiagram(code);
+  const enhancements = [...container.querySelectorAll("[data-mermaid]")].map(renderDiagram);
+  if (container.querySelector("[data-math]")) enhancements.push(renderMath(container));
+  return Promise.allSettled(enhancements);
 }
 
 async function renderMath(container) {

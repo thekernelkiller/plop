@@ -1,5 +1,5 @@
-const CACHE = "plop-shell-v1";
-const shell = ["./index.html", "./app.js", "./firebase-config.js", "./markdown.js", "./styles.css", "./env.json"];
+const CACHE = "plop-shell-v2";
+const shell = ["./index.html", "./app.js", "./firebase-config.js", "./markdown.js", "./documents.js", "./styles.css", "./env.json"];
 const firebase = "https://www.gstatic.com/firebasejs/10.8.0/";
 const dependencies = [
   firebase + "firebase-app.js", firebase + "firebase-auth.js", firebase + "firebase-firestore.js",
@@ -7,7 +7,12 @@ const dependencies = [
   "https://cdn.jsdelivr.net/npm/dompurify@3.4.0/dist/purify.es.mjs"
 ];
 const shellUrls = new Set(shell.map((path) => new URL(path, self.registration.scope).href));
-const dependencyUrls = new Set(dependencies);
+const dependencyUrls = new Set([
+  ...dependencies,
+  "https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.624/build/pdf.min.mjs",
+  "https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.624/build/pdf.worker.min.mjs",
+  "https://cdn.jsdelivr.net/npm/mammoth@1.11.0/mammoth.browser.min.js"
+]);
 const index = new URL("./index.html", self.registration.scope).href;
 
 self.addEventListener("install", (event) => {
@@ -28,7 +33,14 @@ self.addEventListener("fetch", (event) => {
   const navigation = request.mode === "navigate" && url.origin === appRoot.origin &&
     [appRoot.pathname, new URL(index).pathname].includes(url.pathname);
   if (dependencyUrls.has(request.url)) {
-    event.respondWith(caches.match(request).then((cached) => cached || fetch(request)));
+    event.respondWith((async () => {
+      const cache = await caches.open(CACHE);
+      const cached = await cache.match(request);
+      if (cached) return cached;
+      const response = await fetch(request);
+      if (response.ok) await cache.put(request, response.clone());
+      return response;
+    })());
   } else if (navigation || shellUrls.has(request.url)) {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE);
