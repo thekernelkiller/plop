@@ -1,3 +1,4 @@
+import { formatMarkdown, renderMarkdown } from "./markdown.js";
 import {
   signInAnonymously,
   onAuthStateChanged,
@@ -20,24 +21,55 @@ import { auth, db } from "./firebase-config.js";
 // THEME SYSTEM
 // ─────────────────────────────────────────────────────────────────────
 
-const THEMES = {
-  charcoal: { primary: "#1E1E1E", primaryLight: "rgba(30,30,30,0.08)",  hover: "#2D2D2D",  bg: "#E5E5EA" },
-  teal:     { primary: "#00B08B", primaryLight: "rgba(0,176,139,0.08)", hover: "#009677",  bg: "#D1F2EB" },
-  blue:     { primary: "#0084C7", primaryLight: "rgba(0,132,199,0.08)", hover: "#006BA6",  bg: "#D6EAF8" },
-  purple:   { primary: "#7C3AED", primaryLight: "rgba(124,58,237,0.08)",hover: "#6D28D9",  bg: "#E2DAF2" }, // Exact original lavender background
-  amber:    { primary: "#D97706", primaryLight: "rgba(217,119,6,0.08)", hover: "#B45309",  bg: "#FCF3CF" },
-  pink:     { primary: "#DB2777", primaryLight: "rgba(219,39,119,0.08)",hover: "#BE185D",  bg: "#FBCFE8" },
-  red:      { primary: "#DC2626", primaryLight: "rgba(220,38,38,0.08)", hover: "#B91C1C",  bg: "#FDEDEC" },
-  orange:   { primary: "#EA580C", primaryLight: "rgba(234,88,12,0.08)", hover: "#C2410C",  bg: "#FDEBD0" },
-};
+// Appearance is a local preference shared across spaces.
+const appearanceForm = document.getElementById("appearance-form");
+const appearanceDialog = document.getElementById("appearance-dialog");
+const appearanceDefaults = { page: "paper", title: "display", body: "sans", size: "regular" };
+const appearanceKey = "plop.appearance";
+
+function applyAppearance(preferences) {
+  const applied = { ...appearanceDefaults };
+  for (const key of Object.keys(applied)) {
+    const control = appearanceForm.elements.namedItem(key);
+    const value = preferences?.[key];
+    if ([...control.options].some((option) => option.value === value)) applied[key] = value;
+    control.value = applied[key];
+    document.documentElement.dataset[key + "Style"] = applied[key];
+  }
+  return applied;
+}
+
+function saveAppearance(preferences) {
+  const applied = applyAppearance(preferences);
+  try { localStorage.setItem(appearanceKey, JSON.stringify(applied)); } catch {}
+}
+
+try {
+  applyAppearance(JSON.parse(localStorage.getItem(appearanceKey)));
+} catch {
+  applyAppearance(appearanceDefaults);
+}
+
+document.getElementById("appearance-btn").addEventListener("click", () => appearanceDialog.showModal());
+appearanceForm.addEventListener("change", () => saveAppearance(Object.fromEntries(new FormData(appearanceForm))));
+appearanceForm.addEventListener("reset", (event) => {
+  event.preventDefault();
+  saveAppearance(appearanceDefaults);
+});
+appearanceForm.addEventListener("submit", (event) => event.preventDefault());
+
+function renderIcon(name) {
+  return `<svg class="plop-icon" aria-hidden="true"><use href="#icon-${name}"/></svg>`;
+}
+
+const SPACE_THEMES = new Set(["charcoal", "teal", "blue", "purple", "amber", "pink", "red", "orange"]);
+
+function spaceTheme(name) {
+  return SPACE_THEMES.has(name) ? name : "purple";
+}
 
 function applyTheme(name) {
-  const t = THEMES[name] || THEMES.purple;
-  const r = document.documentElement.style;
-  r.setProperty("--color-primary",       t.primary);
-  r.setProperty("--color-primary-light", t.primaryLight);
-  r.setProperty("--color-primary-hover", t.hover);
-  r.setProperty("--bg-app",              t.bg); // Fix: set --bg-app (used in styles.css) instead of unused --bg-main
+  document.documentElement.dataset.spaceTheme = spaceTheme(name);
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -55,6 +87,47 @@ let contextMenuTargetId = null;
 let linkDialogParentId = "root";
 let folderDialogParentId = "root";
 let selectedThemeColor = "purple";
+let spaces = [];
+let unsubscribeSpaces;
+let creatingSpace = false;
+let savingNote = false;
+const appContainer = document.querySelector(".app-container");
+const spaceSwitcher = document.getElementById("space-switcher");
+const spaceList = document.getElementById("space-list");
+const addToSpace = document.getElementById("space-add-item");
+const workspaceIcon = document.getElementById("workspace-icon-display");
+const defaultWorkspaceIcon = workspaceIcon.firstElementChild;
+const sidebarToggle = document.getElementById("sidebar-toggle");
+const phoneLayout = matchMedia("(max-width: 768px)");
+
+function syncSidebarToggle() {
+  const visible = phoneLayout.matches
+    ? (appContainer.classList.contains("preview-active")
+      ? appContainer.classList.contains("mobile-list-open")
+      : !appContainer.classList.contains("mobile-canvas-open"))
+    : !appContainer.classList.contains("sidebar-hidden");
+  sidebarToggle.setAttribute("aria-expanded", String(visible));
+}
+
+function toggleSidebar() {
+  if (phoneLayout.matches) {
+    const mode = appContainer.classList.contains("preview-active") ? "mobile-list-open" : "mobile-canvas-open";
+    appContainer.classList.toggle(mode);
+  } else {
+    appContainer.classList.toggle("sidebar-hidden");
+  }
+  syncSidebarToggle();
+}
+
+phoneLayout.addEventListener("change", syncSidebarToggle);
+sidebarToggle.addEventListener("click", toggleSidebar);
+document.addEventListener("keydown", (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s" &&
+      !event.altKey && !event.shiftKey && !document.querySelector("dialog[open]")) {
+    event.preventDefault();
+    if (!event.repeat) toggleSidebar();
+  }
+});
 
 // Shared-folder view
 let isSharedView        = false;
@@ -154,14 +227,32 @@ onAuthStateChanged(auth, async (user) => {
       await loadUserWorkspace();
     }
   } else {
+    if (currentUser) {
+      currentUser = null;
+      unsubscribeSpaces?.();
+      unsubWorkspace?.();
+      unsubItems?.();
+      spaces = [];
+      activeWorkspaceId = null;
+      activeWorkspace = null;
+      workspaceItems = {};
+      selectedItemId = null;
+      currentPreviewItem = null;
+      previewIframe.src = "";
+      treeRoot.textContent = "Loading your spaces…";
+      spaceSwitcher.classList.add("hidden");
+      addToSpace.classList.add("hidden");
+      document.getElementById("rename-workspace-btn").classList.add("hidden");
+      showEmptyState("Welcome to Plop", "Choose a note or link, or add something to your space.");
+    }
     try {
       await signInAnonymously(auth);
     } catch (err) {
-      treeRoot.innerHTML = `
-        <div class="loading-spinner" style="text-align:center;padding:20px">
-          <span style="color:#EA4335;font-weight:600">Authentication Blocked</span>
-          <span style="font-size:13px;margin-top:6px">${err.message}</span>
-        </div>`;
+      const message = document.createElement("p");
+      message.className = "sidebar-status";
+      message.setAttribute("role", "alert");
+      message.textContent = `Could not sign in. ${err.message}`;
+      treeRoot.replaceChildren(message);
     }
   }
 });
@@ -171,51 +262,157 @@ onAuthStateChanged(auth, async (user) => {
 // ─────────────────────────────────────────────────────────────────────
 
 async function loadUserWorkspace() {
+  unsubscribeSpaces?.();
+  const user = currentUser;
+  const ownedSpaces = query(collection(db, "workspaces"), where("ownerId", "==", user.uid));
   try {
-    let lastId = localStorage.getItem(`lf_active_ws_${currentUser.uid}`);
-
-    if (lastId) {
-      const wsDoc = await getDoc(doc(db, "workspaces", lastId));
-      if (wsDoc.exists() && wsDoc.data().ownerId === currentUser.uid) {
-        loadWorkspace(lastId);
-        return;
-      }
+    const snapshot = await getDocs(ownedSpaces);
+    if (currentUser !== user) return;
+    if (snapshot.empty) {
+      const space = await createWorkspace("Bookmarks", user.displayName || "guest", "purple", "");
+      if (currentUser !== user) return;
+      spaces = [space];
+    } else {
+      readSpaces(snapshot);
     }
-
-    // Query for any workspace owned by user
-    const q = query(collection(db, "workspaces"), where("ownerId", "==", currentUser.uid));
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      loadWorkspace(snap.docs[0].id);
-      return;
-    }
-
-    // Create default workspace
-    const newWsId = generateUUID();
-    await setDoc(doc(db, "workspaces", newWsId), {
-      id: newWsId,
-      ownerId: currentUser.uid,
-      title: "bookmarks",
-      authorName: currentUser.displayName || "guest",
-      themeColor: "purple",
-      childrenIds: [],
-      createdAt: serverTimestamp()
-    });
-    loadWorkspace(newWsId);
-  } catch (err) {
-    console.error("loadUserWorkspace error:", err);
+    const lastId = localStorage.getItem(`lf_active_ws_${user.uid}`);
+    loadWorkspace(spaces.find((space) => space.id === lastId)?.id || spaces[0].id);
+    unsubscribeSpaces = onSnapshot(ownedSpaces, (updated) => {
+      if (currentUser === user && !isSharedView) readSpaces(updated);
+    }, (error) => console.error("Could not sync spaces:", error));
+  } catch (error) {
+    treeRoot.textContent = "Could not load your spaces. Reload to try again.";
+    console.error("Could not load spaces:", error);
   }
 }
 
-function loadWorkspace(wsId) {
-  // Tear down previous listeners
-  if (unsubWorkspace) unsubWorkspace();
-  if (unsubItems)     unsubItems();
+async function createWorkspace(title, authorName, themeColor, icon) {
+  const id = generateUUID();
+  const space = { id, ownerId: currentUser.uid, title, authorName, themeColor, childrenIds: [],
+    ...(icon ? { icon } : {}) };
+  await setDoc(doc(db, "workspaces", id), { ...space, createdAt: serverTimestamp() });
+  return space;
+}
 
-  isSharedView       = false;
+function readSpaces(snapshot) {
+  spaces = snapshot.docs.map((entry) => ({ ...entry.data(), id: entry.id }))
+    .sort((a, b) => (a.createdAt?.seconds ?? Infinity) - (b.createdAt?.seconds ?? Infinity) ||
+      a.id.localeCompare(b.id));
+  renderSpaces();
+}
+
+function renderSpaces() {
+  const index = spaces.findIndex((space) => space.id === activeWorkspaceId);
+  const hadFocus = spaceList.contains(document.activeElement);
+  spaceList.replaceChildren();
+  for (const space of spaces) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "space-chip";
+    button.dataset.spaceTheme = spaceTheme(space.themeColor);
+    const icon = document.createElement("span");
+    icon.className = "space-chip-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = space.icon || Array.from(space.title?.trim() || "◇")[0].toLocaleUpperCase();
+    const title = document.createElement("span");
+    title.className = "space-chip-name";
+    title.textContent = space.title;
+    button.append(icon, title);
+    button.title = space.title;
+    if (space.id === activeWorkspaceId) button.setAttribute("aria-current", "true");
+    button.addEventListener("click", () => switchSpace(space.id));
+    spaceList.append(button);
+  }
+  const activeChip = spaceList.children[index];
+  if (hadFocus) activeChip?.focus({ preventScroll: true });
+  activeChip?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  document.getElementById("previous-space").disabled = index <= 0;
+  document.getElementById("next-space").disabled = index < 0 || index >= spaces.length - 1;
+}
+
+function switchSpace(id) {
+  if (!id || id === activeWorkspaceId || !canLeaveNote()) return;
+  const from = spaces.findIndex((space) => space.id === activeWorkspaceId);
+  const to = spaces.findIndex((space) => space.id === id);
+  loadWorkspace(id);
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    const offset = to > from ? 14 : -14;
+    for (const surface of [treeRoot, document.getElementById("empty-state")]) {
+      surface.getAnimations().forEach((animation) => animation.cancel());
+      surface.animate([{ opacity: 0.5, transform: `translateX(${offset}px)` },
+        { opacity: 1, transform: "translateX(0)" }], { duration: 240, easing: "ease-out" });
+    }
+  }
+}
+
+function stepSpace(direction) {
+  const index = spaces.findIndex((space) => space.id === activeWorkspaceId);
+  if (index >= 0) switchSpace(spaces[index + direction]?.id);
+}
+
+document.getElementById("previous-space").addEventListener("click", () => stepSpace(-1));
+document.getElementById("next-space").addEventListener("click", () => stepSpace(1));
+spaceSwitcher.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  event.preventDefault();
+  stepSpace(event.key === "ArrowLeft" ? -1 : 1);
+});
+
+let spaceTouch;
+const sidebar = document.querySelector(".sidebar");
+sidebar.addEventListener("touchstart", (event) => {
+  const touch = event.touches[0];
+  spaceTouch = event.touches.length === 1 && !event.target.closest(".space-list")
+    ? { x: touch.clientX, y: touch.clientY } : null;
+}, { passive: true });
+sidebar.addEventListener("touchcancel", () => { spaceTouch = null; });
+sidebar.addEventListener("touchend", (event) => {
+  if (!spaceTouch || isSharedView) return;
+  const touch = event.changedTouches[0];
+  const dx = touch.clientX - spaceTouch.x;
+  const dy = touch.clientY - spaceTouch.y;
+  spaceTouch = null;
+  if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.5) stepSpace(dx < 0 ? 1 : -1);
+}, { passive: true });
+
+let horizontalTravel = 0;
+let previousWheelTime = 0;
+let switchedDuringGesture = false;
+sidebar.addEventListener("wheel", (event) => {
+  if (isSharedView || event.ctrlKey || event.target.closest(".space-list") ||
+      event.deltaMode !== WheelEvent.DOM_DELTA_PIXEL || Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
+  if (event.timeStamp - previousWheelTime > 160) {
+    horizontalTravel = 0;
+    switchedDuringGesture = false;
+  }
+  previousWheelTime = event.timeStamp;
+  horizontalTravel += event.deltaX;
+  if (!switchedDuringGesture && Math.abs(horizontalTravel) > 72) {
+    switchedDuringGesture = true;
+    stepSpace(horizontalTravel > 0 ? 1 : -1);
+  }
+}, { passive: true });
+
+function loadWorkspace(wsId) {
+  unsubWorkspace?.();
+  unsubItems?.();
+
+  isSharedView = false;
   sharedRootFolderId = null;
-  sharedFolderData   = null;
-  activeWorkspaceId  = wsId;
+  sharedFolderData = null;
+  activeWorkspaceId = wsId;
+  activeWorkspace = null;
+  workspaceItems = {};
+  selectedItemId = null;
+  currentPreviewItem = null;
+  previewIframe.src = "";
+  const space = spaces.find((entry) => entry.id === wsId);
+  if (space) showWorkspaceIdentity(space);
+  showEmptyState(space?.title || "Plop", "Choose a note or link, or add something to this space.");
+  treeRoot.textContent = "";
+  spaceSwitcher.classList.remove("hidden");
+  addToSpace.classList.add("hidden");
+  renderSpaces();
 
   localStorage.setItem(`lf_active_ws_${currentUser.uid}`, wsId);
   loadCollapsedState(wsId);
@@ -224,12 +421,8 @@ function loadWorkspace(wsId) {
   unsubWorkspace = onSnapshot(doc(db, "workspaces", wsId), (snap) => {
     if (!snap.exists()) return;
     activeWorkspace = snap.data();
-    applyTheme(activeWorkspace.themeColor || "purple");
-    selectedThemeColor = activeWorkspace.themeColor || "purple";
-
-    document.getElementById("workspace-title-display").textContent  = activeWorkspace.title;
-
-    syncThemeColorPicker(selectedThemeColor);
+    showWorkspaceIdentity(activeWorkspace);
+    addToSpace.classList.remove("hidden");
     renderTree(true);
   });
 
@@ -240,9 +433,19 @@ function loadWorkspace(wsId) {
     renderTree(true);
   });
 
-  document.getElementById("add-folder-btn")?.classList.remove("hidden");
   document.getElementById("rename-workspace-btn").classList.remove("hidden");
 }
+
+function showWorkspaceIdentity(space) {
+  applyTheme(space.themeColor || "purple");
+  document.getElementById("workspace-title-display").textContent = space.title;
+  workspaceIcon.replaceChildren(space.icon || defaultWorkspaceIcon);
+}
+
+addToSpace.addEventListener("click", () => {
+  const bounds = addToSpace.getBoundingClientRect();
+  showSpaceContextMenu(bounds.left, bounds.bottom + 4);
+});
 
 // ─────────────────────────────────────────────────────────────────────
 // SHARED FOLDER VIEW — VISITOR
@@ -252,6 +455,9 @@ async function loadSharedFolderView(folderId) {
   if (unsubWorkspace) unsubWorkspace();
   if (unsubItems)     unsubItems();
 
+  unsubscribeSpaces?.();
+  spaceSwitcher.classList.add("hidden");
+  addToSpace.classList.add("hidden");
   isSharedView       = true;
   sharedRootFolderId = folderId;
   workspaceItems     = {};
@@ -260,7 +466,7 @@ async function loadSharedFolderView(folderId) {
 
   const shareSnap = await getDoc(doc(db, "sharedFolders", folderId));
   if (!shareSnap.exists()) {
-    treeRoot.innerHTML = `<div class="loading-spinner"><span>⚠️ This share link is no longer active.</span></div>`;
+    treeRoot.innerHTML = `<div class="loading-spinner"><span>This share link is no longer active.</span></div>`;
     return;
   }
 
@@ -268,8 +474,7 @@ async function loadSharedFolderView(folderId) {
   const workspaceId = sharedFolderData.workspaceId;
   activeWorkspaceId = workspaceId;
 
-  applyTheme(sharedFolderData.themeColor || "purple");
-  document.getElementById("workspace-title-display").textContent  = sharedFolderData.folderTitle;
+  showWorkspaceIdentity({ ...sharedFolderData, title: sharedFolderData.folderTitle });
 
   // Hide owner-only controls
   document.getElementById("add-folder-btn")?.classList.add("hidden");
@@ -301,7 +506,7 @@ function renderCloneBanner() {
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
         </svg>
-        <span>Clone this folder to my workspace</span>
+        <span>Copy folder to my spaces</span>
       </button>`;
     document.querySelector(".sidebar-footer").prepend(banner);
     document.getElementById("clone-btn").addEventListener("click", cloneSharedFolder);
@@ -413,7 +618,7 @@ function renderTree(isOwner) {
 
   const rootIds = activeWorkspace.childrenIds || [];
   if (rootIds.length === 0) {
-    showEmptyState("Welcome to Plop", "Right-click the sidebar to create a folder, or paste a link with Cmd/Ctrl+V.");
+    if (!isEditingNote()) showEmptyState(activeWorkspace.title, "Add a note, link, or folder to get started.");
     return;
   }
 
@@ -423,6 +628,8 @@ function renderTree(isOwner) {
       treeRoot.appendChild(renderNode(item, 0, true));
     }
   });
+
+  if (isEditingNote()) return;
 
   if (selectedItemId && workspaceItems[selectedItemId]) {
     const selectedItem = workspaceItems[selectedItemId];
@@ -447,17 +654,21 @@ function renderNode(item, depth, isOwner) {
   el.dataset.id   = item.id;
   el.dataset.type = item.type;
   el.draggable    = isOwner;
-  el.style.paddingLeft = `${depth * 14 + 10}px`; // Increased depth spacing for better readability
+  el.style.setProperty("--depth", depth);
 
   // ── Toggle arrow (folders only) ──
-  const toggleEl = document.createElement("span");
+  const toggleEl = isFolder ? document.createElement("button") : null;
   if (isFolder) {
     toggleEl.className = `folder-toggle${isExpanded ? "" : " collapsed"}`;
-    toggleEl.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>`;
+    toggleEl.type = "button";
+    toggleEl.setAttribute("aria-label", `Toggle ${item.title}`);
+    toggleEl.setAttribute("aria-expanded", String(isExpanded));
+    toggleEl.innerHTML = renderIcon("down");
     toggleEl.addEventListener("click", (e) => {
       e.stopPropagation();
       const childCont = el.nextElementSibling;
       const collapsed = toggleEl.classList.toggle("collapsed");
+      toggleEl.setAttribute("aria-expanded", String(!collapsed));
       if (childCont?.classList.contains("folder-children")) {
         childCont.style.display = collapsed ? "none" : "";
       }
@@ -469,24 +680,23 @@ function renderNode(item, depth, isOwner) {
       }
       saveCollapsedState();
     });
-  } else {
-    toggleEl.className = "folder-toggle-spacer";
   }
 
   // ── Icon ──
   const iconEl = document.createElement("span");
   if (isFolder) {
     iconEl.className = "folder-icon";
-    iconEl.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" fill="currentColor" fill-opacity="0.15"/><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
+    iconEl.innerHTML = renderIcon("folder");
   } else if (item.type === "note") {
     iconEl.className = "note-icon";
-    iconEl.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="currentColor" fill-opacity="0.15"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`;
+    iconEl.innerHTML = renderIcon("note");
   } else {
     iconEl.className = "link-favicon-wrap";
     const faviconEl = document.createElement("img");
     faviconEl.className = "link-favicon";
     faviconEl.src = `https://www.google.com/s2/favicons?domain=${getDomain(item.url)}&sz=32`;
-    faviconEl.onerror = () => { faviconEl.src = ""; faviconEl.style.display = "none"; };
+    faviconEl.alt = "";
+    faviconEl.onerror = () => { iconEl.innerHTML = renderIcon("link"); };
     iconEl.appendChild(faviconEl);
   }
 
@@ -498,10 +708,10 @@ function renderNode(item, depth, isOwner) {
   // ── Content container (aligns toggle, icon, title) ──
   const contentEl = document.createElement("div");
   contentEl.className = "tree-item-content";
-  contentEl.appendChild(toggleEl);
   contentEl.appendChild(iconEl);
   contentEl.appendChild(titleEl);
   el.appendChild(contentEl);
+  if (toggleEl) el.appendChild(toggleEl);
 
   // ── Actions (3-dot button) ──
   if (isOwner) {
@@ -510,7 +720,9 @@ function renderNode(item, depth, isOwner) {
 
     const optBtn = document.createElement("button");
     optBtn.className  = "item-btn";
-    optBtn.title      = "Options";
+    optBtn.type = "button";
+    optBtn.title = "Options";
+    optBtn.setAttribute("aria-label", `Options for ${item.title}`);
     optBtn.innerHTML  = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>`;
     optBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -532,6 +744,13 @@ function renderNode(item, depth, isOwner) {
   // ── Click to select ──
   contentEl.addEventListener("click", (e) => {
     if (e.target.closest(".folder-toggle") || e.target.closest(".item-btn")) return;
+    if (isEditingNote() && item.id === editingNoteId) {
+      appContainer.classList.remove("mobile-list-open");
+      syncSidebarToggle();
+      return;
+    }
+    if (!canLeaveNote()) return;
+    appContainer.classList.remove("mobile-list-open");
     if (isFolder) {
       document.querySelectorAll(".tree-item.selected").forEach(el => el.classList.remove("selected"));
       el.classList.add("selected");
@@ -599,12 +818,12 @@ function showToast(message, type = "info", duration = 3000) {
   const toast = document.createElement("div");
   toast.className = `toast ${type}`;
 
-  let icon = "ℹ️";
-  if (type === "success") icon = "✅";
-  if (type === "error")   icon = "⚠️";
-  if (type === "loading") icon = "⏳";
-
-  toast.innerHTML = `<span>${icon}</span> <span>${message}</span>`;
+  toast.setAttribute("role", type === "error" ? "alert" : "status");
+  const icon = document.createElement("span");
+  icon.className = "toast-symbol";
+  icon.setAttribute("aria-hidden", "true");
+  icon.textContent = { success: "✓", error: "!", loading: "…", info: "·" }[type] || "·";
+  toast.append(icon, document.createTextNode(message));
   container.appendChild(toast);
 
   if (type !== "loading" && duration > 0) {
@@ -637,6 +856,9 @@ function setButtonLoading(button, isLoading, loadingText = "Saving...") {
 }
 
 function showEmptyState(title, desc) {
+  noteEditorWrapper.classList.add("hidden");
+  appContainer.classList.remove("preview-active", "mobile-list-open", "mobile-canvas-open");
+  syncSidebarToggle();
   document.getElementById("empty-title").textContent = title;
   document.getElementById("empty-desc").textContent  = desc;
   emptyState.classList.remove("hidden");
@@ -671,61 +893,23 @@ function setPreviewIframeSrc(url, mode) {
 }
 
 // Lightweight Markdown HTML Parser
-function renderMarkdownToHtml(mdText) {
-  if (!mdText) return "<p><em>Empty note. Click Edit Note to write content.</em></p>";
-
-  let html = mdText
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-  // Code blocks ``` ... ```
-  html = html.replace(/```([\s\S]*?)```/g, (match, code) => {
-    return `<pre><code>${code.trim()}</code></pre>`;
-  });
-
-  // Inline code `...`
-  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
-
-  // Headings #, ##, ###
-  html = html.replace(/^### (.*$)/gim, "<h3>$1</h3>")
-             .replace(/^## (.*$)/gim, "<h2>$1</h2>")
-             .replace(/^# (.*$)/gim, "<h1>$1</h1>");
-
-  // Blockquotes >
-  html = html.replace(/^\> (.*$)/gim, "blockquote>$1</blockquote>");
-
-  // Bold & Italic
-  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-             .replace(/\*([^*]+)\*/g, "<em>$1</em>");
-
-  // Links [text](url)
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-
-  // Unordered lists - item
-  html = html.replace(/^\s*-\s+(.*$)/gim, "<li>$1</li>");
-  html = html.replace(/(<li>.*<\/li>)/gim, "<ul>$1</ul>");
-  html = html.replace(/<\/ul>\s*<ul>/g, "");
-
-  // Paragraphs
-  const lines = html.split(/\n\n+/);
-  html = lines.map(line => {
-    line = line.trim();
-    if (!line) return "";
-    if (/^<(h1|h2|h3|pre|ul|ol|blockquote|table)/i.test(line)) return line;
-    return `<p>${line.replace(/\n/g, "<br>")}</p>`;
-  }).join("\n");
-
-  return html;
-}
-
 function showPreviewState(item) {
+  previewState.classList.toggle("viewing-note", item.type === "note");
+  previewState.classList.remove("editing-note");
+  noteEditorWrapper.classList.add("hidden");
+  appContainer.classList.add("preview-active");
+  appContainer.classList.remove("mobile-canvas-open");
+  syncSidebarToggle();
   currentPreviewItem = item;
+  const copyLabel = item.type === "link" || item.sharedVia ? "Copy link" : "Copy note";
+  urlBarCopyBtn.setAttribute("aria-label", copyLabel);
+  urlBarCopyBtn.title = copyLabel;
   emptyState.classList.add("hidden");
   previewState.classList.remove("hidden");
   if (iframeBlockedWarn) iframeBlockedWarn.classList.add("hidden");
 
   if (item.type === "note") {
     // Show Markdown Note View
-    activeFavicon.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237C3AED' stroke-width='2'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpolyline points='14 2 14 8 20 8'/%3E%3C/svg%3E";
     activeTitle.textContent = item.title;
     activeUrl.textContent   = item.title || "Markdown Document";
     
@@ -746,7 +930,7 @@ function showPreviewState(item) {
       notePreviewContainer.classList.remove("hidden");
       noteRenderedContent.classList.remove("hidden");
       if (noteEditorWrapper) noteEditorWrapper.classList.add("hidden");
-      noteRenderedContent.innerHTML = renderMarkdownToHtml(item.content || "");
+      renderMarkdown(noteRenderedContent, item.content || "");
     }
   } else {
     // Show Link / WebView
@@ -780,7 +964,11 @@ function showPreviewState(item) {
 // ── Lightweight In-Viewer Note Creation & Editor ──
 
 function openInlineNoteEditor(noteId = null, parentId = "root") {
-  if (isSharedView) return; // Viewers cannot edit
+  if (isSharedView || !activeWorkspace || !canLeaveNote()) return;
+  previewState.classList.add("viewing-note", "editing-note");
+  appContainer.classList.add("preview-active");
+  appContainer.classList.remove("mobile-list-open", "mobile-canvas-open");
+  syncSidebarToggle();
 
   editingNoteId = noteId;
   noteDialogParentId = (parentId && workspaceItems[parentId]?.type === "folder") ? parentId : "root";
@@ -796,7 +984,6 @@ function openInlineNoteEditor(noteId = null, parentId = "root") {
   if (noteEditorWrapper) noteEditorWrapper.classList.remove("hidden");
 
   // In the header bar
-  activeFavicon.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237C3AED' stroke-width='2'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpolyline points='14 2 14 8 20 8'/%3E%3C/svg%3E";
   sleekUrlBar.classList.add("hidden");
   noteInlineTitleInput.classList.remove("hidden");
 
@@ -822,7 +1009,95 @@ function openInlineNoteEditor(noteId = null, parentId = "root") {
     noteInlineEditor.value = "";
     setTimeout(() => noteInlineTitleInput.focus(), 50);
   }
+  originalNote = { title: noteInlineTitleInput.value, content: noteInlineEditor.value };
+  setPreviewMode(!phoneLayout.matches);
+  showFormatToolbar(false);
+  updateLivePreview();
 }
+
+const livePreview = document.getElementById("note-live-preview");
+const formatToolbar = document.getElementById("note-format-toolbar");
+const formatToggle = document.getElementById("note-format-toggle");
+const previewToggle = document.getElementById("note-preview-toggle");
+const emojiToggle = document.getElementById("note-emoji-toggle");
+const emojiPicker = document.getElementById("note-emojis");
+let originalNote;
+let previewFrame;
+
+function isEditingNote() {
+  return !noteEditorWrapper.classList.contains("hidden");
+}
+
+function canLeaveNote() {
+  if (savingNote) return false;
+  const dirty = isEditingNote() && originalNote &&
+    (originalNote.title !== noteInlineTitleInput.value || originalNote.content !== noteInlineEditor.value);
+  return !dirty || window.confirm("Discard unsaved changes to this note?");
+}
+
+function setPreviewMode(enabled) {
+  noteEditorWrapper.classList.toggle("show-live-preview", enabled);
+  previewToggle.setAttribute("aria-pressed", String(enabled));
+  previewToggle.textContent = enabled
+    ? (phoneLayout.matches ? "Write" : "Hide preview")
+    : "Preview";
+}
+
+function showFormatToolbar(visible) {
+  formatToolbar.classList.toggle("hidden", !visible);
+  formatToggle.setAttribute("aria-expanded", String(visible));
+  if (!visible) showEmojiPicker(false);
+}
+
+function showEmojiPicker(visible) {
+  emojiPicker.classList.toggle("hidden", !visible);
+  emojiToggle.setAttribute("aria-expanded", String(visible));
+}
+
+function updateLivePreview() {
+  cancelAnimationFrame(previewFrame);
+  previewFrame = requestAnimationFrame(() => renderMarkdown(livePreview, noteInlineEditor.value));
+}
+
+function replaceNoteSelection(edit) {
+  noteInlineEditor.setSelectionRange(edit.start, edit.end);
+  noteInlineEditor.focus();
+  if (!document.execCommand("insertText", false, edit.text)) {
+    noteInlineEditor.setRangeText(edit.text, edit.start, edit.end);
+  }
+  noteInlineEditor.setSelectionRange(edit.selectionStart, edit.selectionEnd);
+  updateLivePreview();
+}
+
+noteInlineEditor.addEventListener("input", updateLivePreview);
+noteInlineEditor.addEventListener("select", () => {
+  if (noteInlineEditor.selectionStart !== noteInlineEditor.selectionEnd) showFormatToolbar(true);
+});
+formatToggle.addEventListener("click", () => showFormatToolbar(formatToolbar.classList.contains("hidden")));
+previewToggle.addEventListener("click", () => {
+  const enabled = !noteEditorWrapper.classList.contains("show-live-preview");
+  setPreviewMode(enabled);
+  if (enabled) livePreview.focus();
+  else noteInlineEditor.focus();
+});
+formatToolbar.addEventListener("mousedown", (event) => {
+  if (event.target.closest("button")) event.preventDefault();
+});
+emojiToggle.addEventListener("click", () => showEmojiPicker(emojiPicker.classList.contains("hidden")));
+formatToolbar.addEventListener("click", (event) => {
+  const emoji = event.target.closest("button[data-emoji]")?.textContent;
+  if (emoji && !savingNote) {
+    const { selectionStart: start, selectionEnd: end } = noteInlineEditor;
+    const caret = start + emoji.length;
+    replaceNoteSelection({ start, end, text: emoji, selectionStart: caret, selectionEnd: caret });
+    showEmojiPicker(false);
+    return;
+  }
+  const button = event.target.closest("button[data-format]");
+  if (!button || savingNote) return;
+  const { value, selectionStart, selectionEnd } = noteInlineEditor;
+  replaceNoteSelection(formatMarkdown(value, selectionStart, selectionEnd, button.dataset.format));
+});
 
 activeNoteEditBtn?.addEventListener("click", () => {
   if (!currentPreviewItem || currentPreviewItem.type !== "note") return;
@@ -835,6 +1110,7 @@ activeNoteShareBtn?.addEventListener("click", () => {
 });
 
 activeNoteDiscardBtn?.addEventListener("click", () => {
+  if (savingNote) return;
   if (editingNoteId && workspaceItems[editingNoteId]) {
     showPreviewState(workspaceItems[editingNoteId]);
   } else {
@@ -844,6 +1120,10 @@ activeNoteDiscardBtn?.addEventListener("click", () => {
 });
 
 activeNoteSaveBtn?.addEventListener("click", async () => {
+  if (savingNote || !isEditingNote()) return;
+  savingNote = true;
+  noteInlineEditor.readOnly = true;
+  noteInlineTitleInput.readOnly = true;
   const title = (noteInlineTitleInput?.value || "").trim() || "Untitled Note.md";
   const content = noteInlineEditor?.value || "";
 
@@ -873,6 +1153,9 @@ activeNoteSaveBtn?.addEventListener("click", async () => {
     console.error("Save note error:", err);
     showToast("Failed to save note: " + err.message, "error");
   } finally {
+    savingNote = false;
+    noteInlineEditor.readOnly = false;
+    noteInlineTitleInput.readOnly = false;
     setButtonLoading(activeNoteSaveBtn, false);
   }
 });
@@ -883,29 +1166,30 @@ noteRenderedContent?.addEventListener("dblclick", () => {
   openInlineNoteEditor(currentPreviewItem.id);
 });
 
-// Shortcuts inside editor: Cmd+S / Ctrl+S to save, Tab for indentation
-noteInlineEditor?.addEventListener("keydown", (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-    e.preventDefault();
+// Keep editing shortcuts scoped to the note.
+noteEditorWrapper.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !formatToolbar.classList.contains("hidden")) {
+    showFormatToolbar(false);
+    noteInlineEditor.focus();
+  }
+  if (!(event.metaKey || event.ctrlKey)) return;
+  if (event.key === "Enter") {
+    event.preventDefault();
     activeNoteSaveBtn.click();
   }
-  if (e.key === "Tab") {
-    e.preventDefault();
-    const start = noteInlineEditor.selectionStart;
-    const end = noteInlineEditor.selectionEnd;
-    noteInlineEditor.value = noteInlineEditor.value.substring(0, start) + "  " + noteInlineEditor.value.substring(end);
-    noteInlineEditor.selectionStart = noteInlineEditor.selectionEnd = start + 2;
+  const style = { b: "bold", i: "italic", u: "underline" }[event.key.toLowerCase()];
+  if (style && !event.shiftKey && !event.altKey && event.target === noteInlineEditor && !savingNote) {
+    event.preventDefault();
+    const { value, selectionStart, selectionEnd } = noteInlineEditor;
+    replaceNoteSelection(formatMarkdown(value, selectionStart, selectionEnd, style));
   }
 });
 
-noteInlineTitleInput?.addEventListener("keydown", (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-    e.preventDefault();
-    activeNoteSaveBtn.click();
-  } else if (e.key === "Enter") {
-    e.preventDefault();
-    noteInlineEditor.focus();
-  }
+noteInlineTitleInput.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  if (event.metaKey || event.ctrlKey) activeNoteSaveBtn.click();
+  else noteInlineEditor.focus();
 });
 
 // Copy URL from header (both URL bar copy button & action icon)
@@ -945,6 +1229,8 @@ document.getElementById("warning-try-viewer")?.addEventListener("click", () => {
 });
 
 document.getElementById("preview-back-btn")?.addEventListener("click", () => {
+  if (!canLeaveNote()) return;
+  selectedItemId = null;
   previewIframe.src = "";
   currentPreviewItem = null;
   showEmptyState("Welcome to Plop", "Select a folder or link from the sidebar.");
@@ -1217,7 +1503,7 @@ function positionPopover(el, x, y) {
 
 // Right-click on sidebar background (not on a tree item)
 treeScrollContainer.addEventListener("contextmenu", (e) => {
-  if (e.target.closest(".tree-item")) return;
+  if (isSharedView || !activeWorkspace || e.target.closest(".tree-item")) return;
   e.preventDefault();
   showSpaceContextMenu(e.clientX, e.clientY);
 });
@@ -1267,6 +1553,15 @@ document.getElementById("sctx-upload-md")?.addEventListener("click", () => {
   spaceContextMenu.hidePopover();
   noteDialogParentId = "root";
   markdownFileInput.click();
+});
+
+document.getElementById("sctx-add-link").addEventListener("click", () => {
+  spaceContextMenu.hidePopover();
+  linkDialogParentId = "root";
+  document.getElementById("link-url-input").value = "";
+  document.getElementById("link-title-input").value = "";
+  document.getElementById("link-dialog-title").textContent = "Add Link";
+  linkDialog.showModal();
 });
 
 document.getElementById("sctx-paste-link").addEventListener("click", async () => {
@@ -1947,13 +2242,23 @@ document.getElementById("note-share-close-btn")?.addEventListener("click", () =>
 // WORKSPACE SETTINGS DIALOG
 // ─────────────────────────────────────────────────────────────────────
 
-document.getElementById("rename-workspace-btn").addEventListener("click", () => {
-  if (!activeWorkspace) return;
-  document.getElementById("workspace-title-input").value  = activeWorkspace.title || "";
-  document.getElementById("workspace-author-input").value = activeWorkspace.authorName || "";
-  selectedThemeColor = activeWorkspace.themeColor || "purple";
+function openWorkspaceDialog(space) {
+  creatingSpace = !space;
+  document.getElementById("workspace-dialog-title").textContent = creatingSpace ? "New space" : "Space settings";
+  document.getElementById("workspace-title-input").value = space?.title || "";
+  document.getElementById("workspace-author-input").value = space?.authorName || "";
+  document.getElementById("workspace-icon-input").value = space?.icon || "";
+  document.getElementById("workspace-error").classList.add("hidden");
+  selectedThemeColor = space?.themeColor || "purple";
   syncThemeColorPicker(selectedThemeColor);
   workspaceDialog.showModal();
+}
+
+document.getElementById("rename-workspace-btn").addEventListener("click", () => {
+  if (activeWorkspace && !isSharedView) openWorkspaceDialog(activeWorkspace);
+});
+document.getElementById("new-space").addEventListener("click", () => {
+  if (currentUser && !isSharedView && !savingNote) openWorkspaceDialog(null);
 });
 
 document.getElementById("workspace-cancel-btn").addEventListener("click", () => workspaceDialog.close());
@@ -1968,31 +2273,39 @@ document.getElementById("theme-color-picker").querySelectorAll(".color-dot").for
 
 function syncThemeColorPicker(color) {
   document.querySelectorAll(".color-dot").forEach(d => {
-    d.classList.toggle("active", d.dataset.color === color);
+    const selected = d.dataset.color === color;
+    d.classList.toggle("active", selected);
+    d.setAttribute("aria-pressed", String(selected));
   });
 }
 
 document.getElementById("workspace-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  if (!activeWorkspaceId) return;
+  if (!activeWorkspaceId || (creatingSpace && !canLeaveNote())) return;
 
   const title      = document.getElementById("workspace-title-input").value.trim();
   const authorName = document.getElementById("workspace-author-input").value.trim() ||
                      activeWorkspace?.authorName || "guest";
+  const icon = document.getElementById("workspace-icon-input").value.trim();
   if (!title) return;
 
   const saveBtn = document.getElementById("workspace-save-btn");
+  if (saveBtn.disabled) return;
   const errorEl = document.getElementById("workspace-error");
   saveBtn.textContent = "Saving…";
   saveBtn.disabled    = true;
   errorEl.classList.add("hidden");
 
   try {
-    await updateDoc(doc(db, "workspaces", activeWorkspaceId), {
-      title,
-      authorName,
-      themeColor: selectedThemeColor
-    });
+    if (creatingSpace) {
+      const space = await createWorkspace(title, authorName, selectedThemeColor, icon);
+      if (!spaces.some((entry) => entry.id === space.id)) spaces.push(space);
+      loadWorkspace(space.id);
+    } else {
+      await updateDoc(doc(db, "workspaces", activeWorkspaceId), {
+        title, authorName, themeColor: selectedThemeColor, icon: icon || deleteField()
+      });
+    }
     workspaceDialog.close();
   } catch (err) {
     console.error("Workspace save error:", err);
@@ -2075,12 +2388,6 @@ document.getElementById("sign-out-btn").addEventListener("click", () => {
 document.getElementById("signout-confirm-cancel-btn").addEventListener("click", () => signoutConfirmDialog.close());
 document.getElementById("signout-confirm-btn").addEventListener("click", async () => {
   signoutConfirmDialog.close();
-  if (unsubWorkspace) unsubWorkspace();
-  if (unsubItems)     unsubItems();
-  activeWorkspaceId = null;
-  activeWorkspace   = null;
-  workspaceItems    = {};
-  treeRoot.innerHTML = "";
   try {
     await signOut(auth);
   } catch (err) {
