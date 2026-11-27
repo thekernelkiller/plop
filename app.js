@@ -1,4 +1,4 @@
-import { saveDocument, deleteDocument, listDocuments, previewDocument, downloadBlob } from "./documents.js";
+import { previewDocument, downloadBlob } from "./documents.js";
 import { formatMarkdown, renderMarkdown } from "./markdown.js";
 import {
   signInAnonymously,
@@ -12,7 +12,7 @@ import {
 
 import {
   doc, collection, query, where,
-  getDoc, setDoc, updateDoc,
+  getDoc, setDoc, updateDoc, deleteDoc,
   onSnapshot, writeBatch, serverTimestamp, deleteField, arrayUnion, arrayRemove, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
@@ -230,7 +230,8 @@ const localFileViewer = document.getElementById("local-file-viewer");
 const localFileContent = document.getElementById("local-file-content");
 const localFileDownload = document.getElementById("local-file-download");
 const localFileRemove = document.getElementById("local-file-remove");
-let localDocuments = new Map();
+let cloudDocuments = new Map();
+let unsubDocuments;
 let documentPreview;
 const notePreviewContainer = document.getElementById("note-preview-container");
 const noteRenderedContent  = document.getElementById("note-rendered-content");
@@ -266,6 +267,7 @@ onAuthStateChanged(auth, async (user) => {
       currentUser = null;
       unsubscribeSpaces?.();
       unsubItems?.();
+      unsubDocuments?.();
       spaces = [];
       activeWorkspaceId = null;
       activeWorkspace = null;
@@ -514,18 +516,27 @@ sidebar.addEventListener("wheel", (event) => {
 
 function loadWorkspace(wsId) {
   unsubItems?.();
+  unsubDocuments?.();
 
   isSharedView = false;
   sharedRootFolderId = null;
   sharedFolderData = null;
   activeWorkspaceId = wsId;
-  localDocuments = new Map();
+  cloudDocuments = new Map();
   const owner = currentUser.uid;
-  listDocuments(owner, wsId).then((files) => {
+  unsubDocuments = onSnapshot(collection(db, "workspaces", wsId, "documents"), (snapshot) => {
     if (activeWorkspaceId !== wsId || currentUser?.uid !== owner || isSharedView) return;
-    for (const file of files) if (!localDocuments.has(file.id)) localDocuments.set(file.id, file);
+    cloudDocuments = new Map(snapshot.docs.map((entry) => [entry.id, {
+      ...entry.data(), id: entry.id, space: wsId, owner, type: "document"
+    }]));
+    if (currentPreviewItem?.type === "document" &&
+        !cloudDocuments.has(currentPreviewItem.id)) {
+      currentPreviewItem = null;
+      selectedItemId = null;
+      showEmptyState(activeWorkspace?.title || "Plop", "This file is no longer in the space.");
+    }
     renderTree(true);
-  }).catch((error) => console.warn("Local documents unavailable:", error));
+  }, (error) => console.warn("Cloud documents unavailable:", error));
   activeWorkspace = spaces.find((entry) => entry.id === wsId);
   workspaceItems = Object.create(null);
   selectedItemId = null;
@@ -597,6 +608,7 @@ addToSpace.addEventListener("click", () => {
 // ─────────────────────────────────────────────────────────────────────
 
 async function loadSharedFolderView(folderId) {
+  unsubDocuments?.();
   if (unsubItems)     unsubItems();
 
   unsubscribeSpaces?.();
@@ -732,7 +744,7 @@ function renderTree(isOwner) {
 
   treeRoot.innerHTML = "";
 
-  if (selectedItemId && !workspaceItems[selectedItemId] && !localDocuments.has(selectedItemId)) {
+  if (selectedItemId && !workspaceItems[selectedItemId] && !cloudDocuments.has(selectedItemId)) {
     selectedItemId = null;
   }
 
@@ -769,7 +781,7 @@ function renderTree(isOwner) {
   if (!activeWorkspace) return;
 
   const rootIds = activeWorkspace.childrenIds || [];
-  if (rootIds.length === 0 && !localDocuments.size) {
+  if (rootIds.length === 0 && !cloudDocuments.size) {
     if (!isEditingNote()) showEmptyState(activeWorkspace.title, "Add a note, link, or folder to get started.");
     return;
   }
@@ -781,8 +793,8 @@ function renderTree(isOwner) {
     }
   });
 
-  appendLocalDocuments(treeRoot, "root", 0);
-  if (isEditingNote() || localDocuments.has(selectedItemId)) return;
+  appendCloudDocuments(treeRoot, "root", 0);
+  if (isEditingNote() || cloudDocuments.has(selectedItemId)) return;
 
   if (selectedItemId && workspaceItems[selectedItemId]) {
     const selectedItem = workspaceItems[selectedItemId];
@@ -816,15 +828,15 @@ function setLinkIcon(element, address) {
   image.src = url.href;
 }
 
-function appendLocalDocuments(container, parent, depth) {
-  for (const file of localDocuments.values()) {
+function appendCloudDocuments(container, parent, depth) {
+  for (const file of cloudDocuments.values()) {
     const actualParent = workspaceItems[file.parent]?.type === "folder" ? file.parent : "root";
     if (actualParent !== parent) continue;
     const button = document.createElement("button");
     button.type = "button";
     button.className = `tree-item local-file-row${selectedItemId === file.id ? " selected" : ""}`;
     button.style.setProperty("--depth", depth);
-    button.title = `${file.title} · This device only`;
+    button.title = file.title;
     button.innerHTML = renderIcon("file");
     const title = document.createElement("span");
     title.className = "tree-item-title";
@@ -988,7 +1000,7 @@ function renderNode(item, depth, isOwner, ancestors = new Set()) {
       }
     });
 
-    if (isOwner) appendLocalDocuments(childrenContainer, item.id, depth + 1);
+    if (isOwner) appendCloudDocuments(childrenContainer, item.id, depth + 1);
 
     el.after(childrenContainer);
     // Return a wrapper so both el + childrenContainer are injected together
@@ -1092,7 +1104,39 @@ function closeDocumentPreview() {
   previewState.classList.remove("viewing-document");
 }
 
-function showLocalFile(file) {
+const documentTypes = {
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+};
+
+async function storageReference(file) {
+  const sdk = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js");
+  return { ...sdk, reference: sdk.ref(sdk.getStorage(), `documents/${file.owner}/${file.space}/${file.id}`) };
+}
+
+function documentMetadata(file) {
+  return doc(db, "workspaces", file.space, "documents", file.id);
+}
+
+async function loadDocumentBlob(file) {
+  const { getBlob, reference } = await storageReference(file);
+  return getBlob(reference, 25 * 1024 * 1024);
+}
+
+async function uploadCloudDocument(file, blob) {
+  const { uploadBytes, deleteObject, reference } = await storageReference(file);
+  await uploadBytes(reference, blob, { contentType: documentTypes[file.format] });
+  try {
+    await setDoc(documentMetadata(file), { title: file.title, format: file.format, parent: file.parent });
+  } catch (error) {
+    if (error.code === "permission-denied") {
+      await deleteObject(reference).catch((cleanupError) => console.warn("Could not remove incomplete upload:", cleanupError));
+    }
+    throw error;
+  }
+}
+
+function showCloudFile(file) {
   previewState.classList.add("viewing-document");
   activeTitle.textContent = file.title;
   previewIframe.src = "about:blank";
@@ -1102,26 +1146,37 @@ function showLocalFile(file) {
   localFileViewer.classList.remove("hidden");
   localFileDownload.classList.remove("hidden");
   localFileRemove.classList.remove("hidden");
+  localFileRemove.disabled = false;
   localFileContent.textContent = "Opening file…";
   documentPreview = new AbortController();
   const { signal } = documentPreview;
-  previewDocument(file, localFileContent, signal).catch((error) => {
+  loadDocumentBlob(file).then((blob) => {
+    if (!signal.aborted) return previewDocument({ ...file, blob }, localFileContent, signal);
+  }).catch((error) => {
     if (signal.aborted) return;
-    console.warn("Could not display local file:", error);
+    console.warn("Could not display cloud file:", error);
     localFileContent.textContent = "Preview unavailable. You can still download the original file.";
   });
 }
 
-localFileDownload.addEventListener("click", () => {
-  if (currentPreviewItem?.type === "document") downloadBlob(currentPreviewItem.blob, currentPreviewItem.title);
+localFileDownload.addEventListener("click", async () => {
+  const file = currentPreviewItem;
+  if (file?.type !== "document") return;
+  try { downloadBlob(await loadDocumentBlob(file), file.title); }
+  catch { showToast("Could not download this file. Check your connection.", "error"); }
 });
 
 localFileRemove.addEventListener("click", async () => {
   const file = currentPreviewItem;
-  if (file?.type !== "document" || !window.confirm(`Remove “${file.title}” from this device?`)) return;
+  if (file?.type !== "document" || localFileRemove.disabled) return;
+  if (!window.confirm(`Delete “${file.title}” from all devices?`)) return;
+  localFileRemove.disabled = true;
   try {
-    await deleteDocument(file.id);
-    localDocuments.delete(file.id);
+    const { deleteObject, reference } = await storageReference(file);
+    try { await deleteObject(reference); }
+    catch (error) { if (error.code !== "storage/object-not-found") throw error; }
+    await deleteDoc(documentMetadata(file));
+    if (activeWorkspaceId === file.space && currentUser?.uid === file.owner) cloudDocuments.delete(file.id);
     if (currentPreviewItem?.id === file.id) {
       selectedItemId = null;
       currentPreviewItem = null;
@@ -1130,6 +1185,8 @@ localFileRemove.addEventListener("click", async () => {
     renderTree(true);
   } catch (error) {
     showToast(error.message || "Could not remove the file.", "error");
+  } finally {
+    if (currentPreviewItem?.id === file.id) localFileRemove.disabled = false;
   }
 });
 
@@ -1154,7 +1211,7 @@ function showPreviewState(item) {
   previewState.classList.remove("hidden");
   if (iframeBlockedWarn) iframeBlockedWarn.classList.add("hidden");
   if (item.type === "document") {
-    showLocalFile(item);
+    showCloudFile(item);
     return;
   }
 
@@ -2366,17 +2423,18 @@ async function importFile(file, parent) {
   try {
     if (["pdf", "docx"].includes(format)) {
       if (file.size > 25 * 1024 * 1024) throw new Error("Choose a PDF or DOCX file under 25 MB.");
-      const item = { id: generateUUID(), type: "document", owner, space: originSpace, parent: importParent, title, format, blob: file };
-      await saveDocument(item);
+      if (!navigator.onLine) throw new Error("Reconnect to upload this file to the cloud.");
+      const item = { id: generateUUID(), type: "document", owner, space: originSpace, parent: importParent, title, format };
+      await uploadCloudDocument(item, file);
       if (inSpace()) {
-        localDocuments.set(item.id, item);
+        cloudDocuments.set(item.id, item);
         if (!isEditingNote()) {
           selectedItemId = item.id;
           showPreviewState(item);
         }
         renderTree(true);
       }
-      showToast("File saved on this device.", "success");
+      showToast("File uploaded to the cloud.", "success");
     } else if (["md", "markdown", "txt"].includes(format)) {
       if (file.size > 400000) throw new Error("This text file is too large to import as a note.");
       const content = await file.text();

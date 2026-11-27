@@ -1,4 +1,4 @@
-const CACHE = "plop-shell-v2";
+const CACHE = "plop-shell-v3";
 const shell = ["./index.html", "./app.js", "./firebase-config.js", "./markdown.js", "./documents.js", "./styles.css", "./env.json"];
 const firebase = "https://www.gstatic.com/firebasejs/10.8.0/";
 const dependencies = [
@@ -9,6 +9,7 @@ const dependencies = [
 const shellUrls = new Set(shell.map((path) => new URL(path, self.registration.scope).href));
 const dependencyUrls = new Set([
   ...dependencies,
+  firebase + "firebase-storage.js",
   "https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.624/build/pdf.min.mjs",
   "https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.624/build/pdf.worker.min.mjs",
   "https://cdn.jsdelivr.net/npm/mammoth@1.11.0/mammoth.browser.min.js"
