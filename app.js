@@ -549,6 +549,7 @@ function loadWorkspace(wsId) {
   spaceSwitcher.classList.remove("hidden");
   addToSpace.classList.toggle("hidden", !space);
   renderSpaces();
+  recoverDocumentUploads(owner, wsId);
 
   try { localStorage.setItem(`lf_active_ws_${currentUser.uid}`, wsId); } catch {}
   loadCollapsedState(wsId);
@@ -1111,7 +1112,10 @@ const documentTypes = {
 
 async function storageReference(file) {
   const sdk = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js");
-  return { ...sdk, reference: sdk.ref(sdk.getStorage(), `documents/${file.owner}/${file.space}/${file.id}`) };
+  const storage = sdk.getStorage();
+  storage.maxUploadRetryTime = 15000;
+  storage.maxOperationRetryTime = 10000;
+  return { ...sdk, reference: sdk.ref(storage, `documents/${file.owner}/${file.space}/${file.id}`) };
 }
 
 function documentMetadata(file) {
@@ -1123,18 +1127,125 @@ async function loadDocumentBlob(file) {
   return getBlob(reference, 25 * 1024 * 1024);
 }
 
-async function uploadCloudDocument(file, blob) {
-  const { uploadBytes, deleteObject, reference } = await storageReference(file);
-  await uploadBytes(reference, blob, { contentType: documentTypes[file.format] });
+const activeDocumentUploads = new Set();
+
+function uploadJournalKey(owner, space) {
+  return `plop.pending-uploads:${owner}:${space}`;
+}
+
+function readUploadJournal(owner, space) {
   try {
-    await setDoc(documentMetadata(file), { title: file.title, format: file.format, parent: file.parent });
-  } catch (error) {
-    if (error.code === "permission-denied") {
-      await deleteObject(reference).catch((cleanupError) => console.warn("Could not remove incomplete upload:", cleanupError));
-    }
-    throw error;
+    const entries = JSON.parse(localStorage.getItem(uploadJournalKey(owner, space)));
+    return Array.isArray(entries) ? entries : [];
+  } catch { return []; }
+}
+
+function rememberUpload(file, finished = false) {
+  const entries = readUploadJournal(file.owner, file.space).filter((entry) => entry.id !== file.id);
+  if (!finished) entries.push(file);
+  try {
+    const key = uploadJournalKey(file.owner, file.space);
+    if (entries.length) localStorage.setItem(key, JSON.stringify(entries));
+    else localStorage.removeItem(key);
+    return true;
+  } catch { return false; }
+}
+
+async function uploadDeadline(operation, milliseconds, message, cancel) {
+  let timer;
+  try {
+    return await Promise.race([operation, new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(message));
+        cancel?.();
+      }, milliseconds);
+    })]);
+  } finally {
+    clearTimeout(timer);
   }
 }
+
+function publishCloudDocument(file) {
+  return uploadDeadline(runTransaction(db, async (transaction) => {
+    const reference = documentMetadata(file);
+    if ((await transaction.get(reference)).exists()) return;
+    transaction.set(reference, { title: file.title, format: file.format, parent: file.parent });
+  }), 15000, "Firebase has not confirmed the file listing. Plop will check again when you reopen the space.");
+}
+
+async function uploadCloudDocument(file, blob, progress) {
+  const remembered = rememberUpload(file);
+  activeDocumentUploads.add(file.id);
+  try {
+    progress("Connecting to Firebase Storage…");
+    const { uploadBytesResumable, reference } = await uploadDeadline(storageReference(file), 12000,
+      "Could not reach Firebase Storage. Check your connection and try the file again.");
+    const upload = uploadBytesResumable(reference, blob, { contentType: documentTypes[file.format] });
+    const unsubscribe = upload.on("state_changed", (snapshot) => {
+      if (!snapshot.totalBytes) return;
+      const percent = Math.min(100, Math.floor(snapshot.bytesTransferred / snapshot.totalBytes * 100));
+      progress(`Uploading “${file.title}” · ${percent}%`);
+    });
+    try {
+      await uploadDeadline(upload, 45000, "The upload timed out. Plop will check Firebase when you reopen the space.", () => upload.cancel());
+    } finally {
+      unsubscribe();
+    }
+    progress("Upload received. Adding the file to your space…");
+    await publishCloudDocument(file);
+    rememberUpload(file, true);
+  } catch (error) {
+    if (["storage/unauthorized", "storage/no-default-bucket", "storage/bucket-not-found"].includes(error.code)) {
+      rememberUpload(file, true);
+      throw new Error("Firebase Storage rejected the upload. Check the configured bucket and published Storage rules.");
+    }
+    if (error.code === "permission-denied") {
+      throw new Error("Firebase received the file, but Firestore rejected its listing. Publish the Firestore rules and reopen this space.");
+    }
+    if (!remembered) throw new Error(`${error.message} This browser could not record the upload for recovery.`);
+    throw error;
+  } finally {
+    activeDocumentUploads.delete(file.id);
+  }
+}
+
+async function recoverDocumentUploads(owner, space) {
+  if (!navigator.onLine) return;
+  for (const file of readUploadJournal(owner, space)) {
+    if (currentUser?.uid !== owner || activeWorkspaceId !== space) return;
+    if (file.owner !== owner || file.space !== space || !documentTypes[file.format] ||
+        !/^[0-9a-f-]{36}$/.test(file.id) || activeDocumentUploads.has(file.id)) continue;
+    activeDocumentUploads.add(file.id);
+    try {
+      const { getMetadata, reference } = await uploadDeadline(storageReference(file), 12000, "Firebase Storage unavailable.");
+      await uploadDeadline(getMetadata(reference), 15000, "Firebase could not confirm the upload.");
+      await publishCloudDocument(file);
+      rememberUpload(file, true);
+      showToast(`Recovered “${file.title}” from Firebase.`, "success");
+    } catch (error) {
+      if (error.code === "storage/object-not-found") {
+        rememberUpload(file, true);
+        showToast(`“${file.title}” did not finish uploading. Select the original file again.`, "error", 7000);
+      } else {
+        showToast(`Firebase could not finish recovering “${file.title}”. Check the connection and Firebase rules, then reopen the space.`, "error", 7000);
+      }
+    } finally {
+      activeDocumentUploads.delete(file.id);
+    }
+  }
+}
+
+window.addEventListener("online", () => {
+  if (currentUser && activeWorkspaceId && !isSharedView) recoverDocumentUploads(currentUser.uid, activeWorkspaceId);
+});
+
+function warnBeforeUploadExit(event) {
+  if (!activeDocumentUploads.size) return;
+  event.preventDefault();
+  event.returnValue = "";
+}
+
+window.addEventListener("beforeunload", warnBeforeUploadExit);
 
 function showCloudFile(file) {
   previewState.classList.add("viewing-document");
@@ -2425,7 +2536,9 @@ async function importFile(file, parent) {
       if (file.size > 25 * 1024 * 1024) throw new Error("Choose a PDF or DOCX file under 25 MB.");
       if (!navigator.onLine) throw new Error("Reconnect to upload this file to the cloud.");
       const item = { id: generateUUID(), type: "document", owner, space: originSpace, parent: importParent, title, format };
-      await uploadCloudDocument(item, file);
+      const progress = document.createTextNode("");
+      toast.lastChild.replaceWith(progress);
+      await uploadCloudDocument(item, file, (message) => { progress.nodeValue = message; });
       if (inSpace()) {
         cloudDocuments.set(item.id, item);
         if (!isEditingNote()) {

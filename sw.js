@@ -1,4 +1,4 @@
-const CACHE = "plop-shell-v3";
+const CACHE = "plop-shell-v4";
 const shell = ["./index.html", "./app.js", "./firebase-config.js", "./markdown.js", "./documents.js", "./styles.css", "./env.json"];
 const firebase = "https://www.gstatic.com/firebasejs/10.8.0/";
 const dependencies = [

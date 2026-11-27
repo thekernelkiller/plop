@@ -18,3 +18,9 @@ PDF and DOCX files use the Firebase project's Cloud Storage bucket. Their titles
 ```
 
 After deployment, upload a PDF or DOCX and confirm you can open and download it in a second browser signed into the same account. The Nixpacks build command remains the same.
+
+## Upload troubleshooting
+
+Uploads go directly from the browser to Firebase. The Dokploy web server logs show delivery of the app files and do not include Firebase upload responses. Use the browser's Network panel to check Storage and Firestore requests. Confirm that both rulesets are published before testing a document.
+
+Plop stores only an upload identifier and file details in a browser recovery record. After a reload, it can restore the listing if the bytes reached Firebase. If the transfer ended before Firebase stored the file, select the original file again.
