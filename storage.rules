@@ -1,0 +1,19 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /documents/{uid}/{space}/{file} {
+      function ownsWorkspace() {
+        return request.auth != null && request.auth.uid == uid &&
+          firestore.get(/databases/(default)/documents/workspaces/$(space)).data.ownerId == uid;
+      }
+      allow get, delete: if ownsWorkspace();
+      allow create, update: if ownsWorkspace() &&
+        file.matches('^[0-9a-f-]{36}$') &&
+        request.resource.size <= 25 * 1024 * 1024 &&
+        request.resource.contentType in [
+          'application/pdf',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        ];
+    }
+  }
+}

@@ -2,45 +2,8 @@ import DOMPurify from "https://cdn.jsdelivr.net/npm/dompurify@3.4.0/dist/purify.
 
 const PDF_ROOT = "https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.624/build/";
 const DOCX_SCRIPT = "https://cdn.jsdelivr.net/npm/mammoth@1.11.0/mammoth.browser.min.js";
-const STORE = "documents";
-let database;
 let pdfModule;
 let docxModule;
-
-async function documentStore() {
-  database ||= new Promise((resolve, reject) => {
-    const request = indexedDB.open("plop-files", 1);
-    request.onupgradeneeded = () => {
-      const store = request.result.createObjectStore(STORE, { keyPath: "id" });
-      store.createIndex("space", ["owner", "space"]);
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-  return database;
-}
-
-async function operate(mode, action) {
-  const db = await documentStore();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(STORE, mode);
-    const request = action(transaction.objectStore(STORE));
-    transaction.oncomplete = () => resolve(request.result);
-    transaction.onabort = () => reject(transaction.error || new Error("File storage is unavailable."));
-  });
-}
-
-export function saveDocument(document) {
-  return operate("readwrite", (store) => store.put(document));
-}
-
-export function listDocuments(owner, space) {
-  return operate("readonly", (store) => store.index("space").getAll([owner, space]));
-}
-
-export function deleteDocument(id) {
-  return operate("readwrite", (store) => store.delete(id));
-}
 
 export function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
