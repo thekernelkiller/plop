@@ -102,20 +102,30 @@ service cloud.firestore {
 
     // ══════════════════════════════════════
     // /sharedFolders/{folderId}
-    // Public share registry — UUID provides security through obscurity
+    // Guests can look up a specific link. Registry listings are private.
     // ══════════════════════════════════════
     match /sharedFolders/{folderId} {
-      allow read: if true;
+      allow get: if true;
+
+      function ownsShareTarget(data) {
+        let workspace = /databases/$(database)/documents/workspaces/$(data.workspaceId);
+        let item = /databases/$(database)/documents/workspaces/$(data.workspaceId)/items/$(folderId);
+        return get(workspace).data.ownerId == request.auth.uid &&
+               get(item).data.type in ['folder', 'note'];
+      }
 
       allow create: if isAuthenticated() &&
                        request.resource.data.ownerId == request.auth.uid &&
                        isValidSharedFolder(request.resource.data) &&
+                       ownsShareTarget(request.resource.data) &&
                        request.resource.data.sharedAt == request.time;
 
       allow update: if isAuthenticated() &&
                        resource.data.ownerId == request.auth.uid &&
                        request.resource.data.ownerId == request.auth.uid &&
-                       isValidSharedFolder(request.resource.data);
+                       request.resource.data.workspaceId == resource.data.workspaceId &&
+                       isValidSharedFolder(request.resource.data) &&
+                       ownsShareTarget(request.resource.data);
 
       allow delete: if isAuthenticated() &&
                        resource.data.ownerId == request.auth.uid;
@@ -150,13 +160,16 @@ service cloud.firestore {
           return exists(path) && get(path).data.ownerId == request.auth.uid;
         }
 
-        // Readable if:
-        //   (a) you own the workspace, OR
-        //   (b) the item carries a sharedVia pointing to a live sharedFolders entry
+        function hasActiveShare(shareId) {
+          let share = /databases/$(database)/documents/sharedFolders/$(shareId);
+          return get(share).data.workspaceId == workspaceId;
+        }
+
+        // Share links only grant read access inside their registered workspace.
         allow read: if isAuthenticated() && (
           isParentWorkspaceOwner() ||
           ('sharedVia' in resource.data &&
-           exists(/databases/$(database)/documents/sharedFolders/$(resource.data.sharedVia)))
+           hasActiveShare(resource.data.sharedVia))
         );
 
         allow create: if isAuthenticated() &&

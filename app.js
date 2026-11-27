@@ -11,8 +11,8 @@ import {
 
 import {
   doc, collection, query, where,
-  getDoc, getDocs, setDoc, updateDoc, deleteDoc,
-  onSnapshot, writeBatch, serverTimestamp, deleteField
+  getDoc, setDoc, updateDoc,
+  onSnapshot, writeBatch, serverTimestamp, deleteField, arrayUnion, arrayRemove, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 import { auth, db } from "./firebase-config.js";
@@ -79,18 +79,48 @@ function applyTheme(name) {
 let currentUser        = null;
 let activeWorkspaceId  = null;
 let activeWorkspace    = null;   // live snapshot of workspace doc
-let workspaceItems     = {};     // { [id]: itemData }
-let unsubWorkspace     = null;
+let workspaceItems     = Object.create(null);     // { [id]: itemData }
 let unsubItems         = null;
 let selectedItemId     = null;
 let contextMenuTargetId = null;
 let linkDialogParentId = "root";
 let folderDialogParentId = "root";
 let selectedThemeColor = "purple";
+let selectedSpaceIcon = "preset-box";
+let spaceIconChanged = false;
+const spaceIconPicker = document.getElementById("space-icon-picker");
+const presetSpaceIcons = new Set([...spaceIconPicker.querySelectorAll("[data-icon]")].map(button => button.dataset.icon));
+
+function spaceIconKey(space) {
+  return `plop.space-icon:${currentUser?.uid}:${space.id}`;
+}
+
+function effectiveSpaceIcon(space) {
+  try {
+    const local = localStorage.getItem(spaceIconKey(space));
+    if (presetSpaceIcons.has(local)) return local;
+  } catch {}
+  return space.icon;
+}
+
+function showSpaceIcon(element, space, fallback) {
+  const icon = effectiveSpaceIcon(space);
+  if (presetSpaceIcons.has(icon)) element.innerHTML = renderIcon(icon);
+  else element.replaceChildren(icon || fallback);
+}
+
+function saveLocalSpaceIcon(space, icon) {
+  try {
+    if (icon) localStorage.setItem(spaceIconKey(space), icon);
+    else localStorage.removeItem(spaceIconKey(space));
+    return true;
+  } catch {
+    return false;
+  }
+}
 let spaces = [];
 let unsubscribeSpaces;
 let creatingSpace = false;
-let savingNote = false;
 const appContainer = document.querySelector(".app-container");
 const spaceSwitcher = document.getElementById("space-switcher");
 const spaceList = document.getElementById("space-list");
@@ -166,7 +196,6 @@ const treeRoot             = document.getElementById("tree-root");
 const treeScrollContainer  = document.getElementById("tree-scroll-container");
 const emptyState           = document.getElementById("empty-state");
 const previewState         = document.getElementById("preview-state");
-const activeFavicon        = document.getElementById("active-favicon");
 const activeTitle          = document.getElementById("active-title");
 const activeUrl            = document.getElementById("active-url");
 const activeLinkOpen       = document.getElementById("active-link-open");
@@ -195,7 +224,6 @@ const sleekUrlBar          = document.getElementById("sleek-url-bar");
 const urlBarCopyBtn        = document.getElementById("url-bar-copy-btn");
 const noteInlineTitleInput = document.getElementById("note-inline-title-input");
 const noteEditorWrapper    = document.getElementById("note-editor-wrapper");
-const noteDialog           = document.getElementById("note-dialog");
 const markdownFileInput    = document.getElementById("markdown-file-input");
 const notePreviewContainer = document.getElementById("note-preview-container");
 const noteRenderedContent  = document.getElementById("note-rendered-content");
@@ -230,15 +258,14 @@ onAuthStateChanged(auth, async (user) => {
     if (currentUser) {
       currentUser = null;
       unsubscribeSpaces?.();
-      unsubWorkspace?.();
       unsubItems?.();
       spaces = [];
       activeWorkspaceId = null;
       activeWorkspace = null;
-      workspaceItems = {};
+      workspaceItems = Object.create(null);
       selectedItemId = null;
       currentPreviewItem = null;
-      previewIframe.src = "";
+      previewIframe.src = "about:blank";
       treeRoot.textContent = "Loading your spaces…";
       spaceSwitcher.classList.add("hidden");
       addToSpace.classList.add("hidden");
@@ -261,29 +288,52 @@ onAuthStateChanged(auth, async (user) => {
 // WORKSPACE LOADING — OWNER
 // ─────────────────────────────────────────────────────────────────────
 
-async function loadUserWorkspace() {
+function loadUserWorkspace() {
   unsubscribeSpaces?.();
   const user = currentUser;
   const ownedSpaces = query(collection(db, "workspaces"), where("ownerId", "==", user.uid));
-  try {
-    const snapshot = await getDocs(ownedSpaces);
-    if (currentUser !== user) return;
+  let creatingDefault = false;
+  unsubscribeSpaces = onSnapshot(ownedSpaces, { includeMetadataChanges: true }, async (snapshot) => {
+    if (currentUser !== user || isSharedView) return;
     if (snapshot.empty) {
-      const space = await createWorkspace("Bookmarks", user.displayName || "guest", "purple", "");
-      if (currentUser !== user) return;
-      spaces = [space];
-    } else {
-      readSpaces(snapshot);
+      if (snapshot.metadata.fromCache) {
+        treeRoot.textContent = "Connecting… No spaces are cached on this device.";
+        return;
+      }
+      if (creatingDefault) return;
+      creatingDefault = true;
+      try {
+        await createWorkspace("Bookmarks", user.displayName || "guest", "purple", "");
+      } catch (error) {
+        if (currentUser === user) treeRoot.textContent = "Could not create a space. Reload to retry.";
+        console.error("Could not create a space:", error);
+      } finally {
+        creatingDefault = false;
+      }
+      return;
     }
-    const lastId = localStorage.getItem(`lf_active_ws_${user.uid}`);
-    loadWorkspace(spaces.find((space) => space.id === lastId)?.id || spaces[0].id);
-    unsubscribeSpaces = onSnapshot(ownedSpaces, (updated) => {
-      if (currentUser === user && !isSharedView) readSpaces(updated);
-    }, (error) => console.error("Could not sync spaces:", error));
-  } catch (error) {
+
+    readSpaces(snapshot);
+    const space = spaces.find((entry) => entry.id === activeWorkspaceId);
+    if (!space) {
+      let lastId;
+      try { lastId = localStorage.getItem(`lf_active_ws_${user.uid}`); } catch {}
+      loadWorkspace(spaces.find((entry) => entry.id === lastId)?.id || spaces[0].id);
+      return;
+    }
+    const previous = activeWorkspace;
+    activeWorkspace = space;
+    if (previous?.title !== space.title || previous.icon !== space.icon || previous.themeColor !== space.themeColor) {
+      showWorkspaceIdentity(space);
+    }
+    const previousChildren = previous?.childrenIds || [];
+    const nextChildren = space.childrenIds || [];
+    if (previousChildren.length !== nextChildren.length ||
+        previousChildren.some((id, position) => id !== nextChildren[position])) renderTree(true);
+  }, (error) => {
     treeRoot.textContent = "Could not load your spaces. Reload to try again.";
-    console.error("Could not load spaces:", error);
-  }
+    console.error("Could not sync spaces:", error);
+  });
 }
 
 async function createWorkspace(title, authorName, themeColor, icon) {
@@ -295,10 +345,14 @@ async function createWorkspace(title, authorName, themeColor, icon) {
 }
 
 function readSpaces(snapshot) {
+  const previous = spaces;
   spaces = snapshot.docs.map((entry) => ({ ...entry.data(), id: entry.id }))
     .sort((a, b) => (a.createdAt?.seconds ?? Infinity) - (b.createdAt?.seconds ?? Infinity) ||
       a.id.localeCompare(b.id));
-  renderSpaces();
+  if (previous.length !== spaces.length || spaces.some((space, index) => {
+    const old = previous[index];
+    return space.id !== old.id || space.title !== old.title || space.icon !== old.icon || space.themeColor !== old.themeColor;
+  })) renderSpaces();
 }
 
 function renderSpaces() {
@@ -313,7 +367,7 @@ function renderSpaces() {
     const icon = document.createElement("span");
     icon.className = "space-chip-icon";
     icon.setAttribute("aria-hidden", "true");
-    icon.textContent = space.icon || Array.from(space.title?.trim() || "◇")[0].toLocaleUpperCase();
+    showSpaceIcon(icon, space, Array.from(space.title?.trim() || "◇")[0].toLocaleUpperCase());
     const title = document.createElement("span");
     title.className = "space-chip-name";
     title.textContent = space.title;
@@ -394,42 +448,61 @@ sidebar.addEventListener("wheel", (event) => {
 }, { passive: true });
 
 function loadWorkspace(wsId) {
-  unsubWorkspace?.();
   unsubItems?.();
 
   isSharedView = false;
   sharedRootFolderId = null;
   sharedFolderData = null;
   activeWorkspaceId = wsId;
-  activeWorkspace = null;
-  workspaceItems = {};
+  activeWorkspace = spaces.find((entry) => entry.id === wsId);
+  workspaceItems = Object.create(null);
   selectedItemId = null;
   currentPreviewItem = null;
-  previewIframe.src = "";
-  const space = spaces.find((entry) => entry.id === wsId);
+  previewIframe.src = "about:blank";
+  const space = activeWorkspace;
   if (space) showWorkspaceIdentity(space);
   showEmptyState(space?.title || "Plop", "Choose a note or link, or add something to this space.");
   treeRoot.textContent = "";
   spaceSwitcher.classList.remove("hidden");
-  addToSpace.classList.add("hidden");
+  addToSpace.classList.toggle("hidden", !space);
   renderSpaces();
 
-  localStorage.setItem(`lf_active_ws_${currentUser.uid}`, wsId);
+  try { localStorage.setItem(`lf_active_ws_${currentUser.uid}`, wsId); } catch {}
   loadCollapsedState(wsId);
 
-  // Live workspace doc
-  unsubWorkspace = onSnapshot(doc(db, "workspaces", wsId), (snap) => {
-    if (!snap.exists()) return;
-    activeWorkspace = snap.data();
-    showWorkspaceIdentity(activeWorkspace);
-    addToSpace.classList.remove("hidden");
-    renderTree(true);
-  });
-
   // Live items subcollection
-  unsubItems = onSnapshot(collection(db, "workspaces", wsId, "items"), (snap) => {
-    workspaceItems = {};
-    snap.forEach(d => { workspaceItems[d.id] = d.data(); });
+  const drafts = draftsForWorkspace(wsId);
+  unsubItems = onSnapshot(collection(db, "workspaces", wsId, "items"), { includeMetadataChanges: true }, (snap) => {
+    if (activeWorkspaceId !== wsId || isSharedView) return;
+    workspaceItems = Object.create(null);
+    const pending = new Set();
+    snap.forEach((entry) => {
+      workspaceItems[entry.id] = entry.data();
+      if (entry.metadata?.hasPendingWrites) pending.add(entry.id);
+    });
+    for (const [id, key] of drafts) {
+      if (pendingNoteEdits.has(key) || pending.has(id)) continue;
+      const item = workspaceItems[id];
+      const value = readNoteDraft(key);
+      if (!item && snap.metadata.fromCache) continue;
+      drafts.delete(id);
+      if (!value) continue;
+      if (!item) {
+        const recoveryKey = value.recoveryKey;
+        if (typeof recoveryKey === "string" && recoveryKey.startsWith(noteDraftKey(wsId, "new:")) && !readNoteDraft(recoveryKey)) {
+          try {
+            localStorage.setItem(recoveryKey, JSON.stringify({ title: value.title, content: value.content }));
+            localStorage.removeItem(key);
+          } catch {}
+        }
+      } else if (sameNote(item, value)) {
+        clearNoteDraft({ key }, value);
+      } else {
+        scheduleNoteSync({
+          key, id, uid: currentUser.uid, workspaceId: wsId, base: item, value, local: true
+        });
+      }
+    }
     renderTree(true);
   });
 
@@ -439,7 +512,7 @@ function loadWorkspace(wsId) {
 function showWorkspaceIdentity(space) {
   applyTheme(space.themeColor || "purple");
   document.getElementById("workspace-title-display").textContent = space.title;
-  workspaceIcon.replaceChildren(space.icon || defaultWorkspaceIcon);
+  showSpaceIcon(workspaceIcon, space, defaultWorkspaceIcon);
 }
 
 addToSpace.addEventListener("click", () => {
@@ -452,7 +525,6 @@ addToSpace.addEventListener("click", () => {
 // ─────────────────────────────────────────────────────────────────────
 
 async function loadSharedFolderView(folderId) {
-  if (unsubWorkspace) unsubWorkspace();
   if (unsubItems)     unsubItems();
 
   unsubscribeSpaces?.();
@@ -460,12 +532,13 @@ async function loadSharedFolderView(folderId) {
   addToSpace.classList.add("hidden");
   isSharedView       = true;
   sharedRootFolderId = folderId;
-  workspaceItems     = {};
+  workspaceItems     = Object.create(null);
 
   treeRoot.innerHTML = `<div class="loading-spinner"><div class="spinner"></div><span>Loading shared folder…</span></div>`;
 
-  const shareSnap = await getDoc(doc(db, "sharedFolders", folderId));
-  if (!shareSnap.exists()) {
+  const shareSnap = /^[\da-f-]{36}$/i.test(folderId)
+    ? await getDoc(doc(db, "sharedFolders", folderId)).catch(() => null) : null;
+  if (!shareSnap?.exists()) {
     treeRoot.innerHTML = `<div class="loading-spinner"><span>This share link is no longer active.</span></div>`;
     return;
   }
@@ -485,9 +558,14 @@ async function loadSharedFolderView(folderId) {
     query(collection(db, "workspaces", workspaceId, "items"),
           where("sharedVia", "==", folderId)),
     (snap) => {
-      workspaceItems = {};
+      workspaceItems = Object.create(null);
       snap.forEach(d => { workspaceItems[d.id] = d.data(); });
       renderTree(false);
+    }, () => {
+      workspaceItems = Object.create(null);
+      currentPreviewItem = null;
+      treeRoot.textContent = "This share is unavailable.";
+      showEmptyState("Share unavailable", "The link may have been turned off, or you may be offline.");
     }
   );
 
@@ -522,13 +600,13 @@ async function cloneSharedFolder() {
 
   try {
     const newWsId = generateUUID();
-    const idMap   = {}; // oldId → newId for items
+    const idMap = Object.create(null);
 
     // Ensure the user has a workspace; if not, this becomes it
     await setDoc(doc(db, "workspaces", newWsId), {
       id: newWsId,
       ownerId:    currentUser.uid,
-      title:      `${sharedFolderData.folderTitle} (clone)`,
+      title:      `${sharedFolderData.folderTitle.slice(0, 42)} (clone)`,
       authorName: currentUser.displayName || sharedFolderData.authorName || "guest",
       themeColor: sharedFolderData.themeColor || "purple",
       childrenIds: [],
@@ -537,7 +615,7 @@ async function cloneSharedFolder() {
 
     // Remap IDs
     Object.keys(workspaceItems).forEach(oldId => { idMap[oldId] = generateUUID(); });
-    const newRootFolderId = idMap[sharedRootFolderId];
+
 
     const batch = writeBatch(db);
 
@@ -549,7 +627,8 @@ async function cloneSharedFolder() {
         type:      item.type,
         title:     item.title,
         createdAt: item.createdAt,
-        ...(item.url        ? { url:        item.url }                             : {}),
+        ...(item.url ? { url: item.url } : {}),
+        ...(item.type === "note" ? { content: item.content || "" } : {}),
         ...(item.childrenIds? { childrenIds: item.childrenIds.map(cid => idMap[cid] || cid) } : {}),
       };
       batch.set(doc(db, "workspaces", newWsId, "items", newId), cloned);
@@ -644,7 +723,7 @@ function renderTree(isOwner) {
   }
 }
 
-function renderNode(item, depth, isOwner) {
+function renderNode(item, depth, isOwner, ancestors = new Set()) {
   const isFolder = item.type === "folder";
   // Use persisted collapsed state; default open
   const isExpanded = !collapsedFolderIds.has(item.id);
@@ -692,12 +771,7 @@ function renderNode(item, depth, isOwner) {
     iconEl.innerHTML = renderIcon("note");
   } else {
     iconEl.className = "link-favicon-wrap";
-    const faviconEl = document.createElement("img");
-    faviconEl.className = "link-favicon";
-    faviconEl.src = `https://www.google.com/s2/favicons?domain=${getDomain(item.url)}&sz=32`;
-    faviconEl.alt = "";
-    faviconEl.onerror = () => { iconEl.innerHTML = renderIcon("link"); };
-    iconEl.appendChild(faviconEl);
+    iconEl.innerHTML = renderIcon("link");
   }
 
   // ── Title ──
@@ -789,7 +863,9 @@ function renderNode(item, depth, isOwner) {
 
     (item.childrenIds || []).forEach(childId => {
       const child = workspaceItems[childId];
-      if (child) childrenContainer.appendChild(renderNode(child, depth + 1, isOwner));
+      if (child && child.parentId === item.id && !ancestors.has(childId) && childId !== item.id) {
+        childrenContainer.appendChild(renderNode(child, depth + 1, isOwner, new Set([...ancestors, item.id])));
+      }
     });
 
     el.after(childrenContainer);
@@ -880,20 +956,15 @@ function getViewerUrl(url) {
 
 function setPreviewIframeSrc(url, mode) {
   currentPreviewMode = mode;
-  const viewerLabel = document.getElementById("viewer-toggle-label");
-  if (viewerLabel) {
-    viewerLabel.textContent = mode === "viewer" ? "Direct View" : "Web / PDF Viewer";
-  }
-
-  if (mode === "viewer") {
-    previewIframe.src = getViewerUrl(url);
-  } else {
-    previewIframe.src = url;
-  }
+  const src = !isValidUrl(url) ? "about:blank" : mode === "viewer" ? getViewerUrl(url) : url;
+  if (previewIframe.getAttribute("src") !== src) previewIframe.src = src;
 }
 
-// Lightweight Markdown HTML Parser
 function showPreviewState(item) {
+  if (item.type === "note" && !isSharedView) {
+    const draft = readNoteDraft(noteDraftKey(activeWorkspaceId, item.id));
+    if (draft) item = { ...item, ...draft, title: draft.title.trim() || "Untitled Note.md" };
+  }
   previewState.classList.toggle("viewing-note", item.type === "note");
   previewState.classList.remove("editing-note");
   noteEditorWrapper.classList.add("hidden");
@@ -925,6 +996,7 @@ function showPreviewState(item) {
     if (activeNoteSaveBtn) activeNoteSaveBtn.classList.add("hidden");
     if (activeNoteDiscardBtn) activeNoteDiscardBtn.classList.add("hidden");
 
+    if (previewIframe.getAttribute("src") !== "about:blank") previewIframe.src = "about:blank";
     previewIframe.classList.add("hidden");
     if (notePreviewContainer) {
       notePreviewContainer.classList.remove("hidden");
@@ -934,15 +1006,16 @@ function showPreviewState(item) {
     }
   } else {
     // Show Link / WebView
-    activeFavicon.src  = `https://www.google.com/s2/favicons?domain=${getDomain(item.url)}&sz=32`;
     activeTitle.textContent = item.title || item.url;
     activeUrl.textContent   = item.url;
-    activeLinkOpen.href     = item.url;
+    const canOpen = isValidUrl(item.url);
+    activeLinkOpen.href = canOpen ? item.url : "about:blank";
+    activeLinkOpenWarn.href = activeLinkOpen.href;
     
     // Header elements
     sleekUrlBar.classList.remove("hidden");
     noteInlineTitleInput.classList.add("hidden");
-    activeLinkOpen.classList.remove("hidden");
+    activeLinkOpen.classList.toggle("hidden", !canOpen);
     if (previewToggleViewer) previewToggleViewer.classList.remove("hidden");
     if (activeNoteEditBtn) activeNoteEditBtn.classList.add("hidden");
     if (activeNoteShareBtn) activeNoteShareBtn.classList.add("hidden");
@@ -976,6 +1049,7 @@ function openInlineNoteEditor(noteId = null, parentId = "root") {
   emptyState.classList.add("hidden");
   previewState.classList.remove("hidden");
   if (iframeBlockedWarn) iframeBlockedWarn.classList.add("hidden");
+  if (previewIframe.getAttribute("src") !== "about:blank") previewIframe.src = "about:blank";
   previewIframe.classList.add("hidden");
 
   // Show note container and editor wrapper
@@ -1009,7 +1083,17 @@ function openInlineNoteEditor(noteId = null, parentId = "root") {
     noteInlineEditor.value = "";
     setTimeout(() => noteInlineTitleInput.focus(), 50);
   }
-  originalNote = { title: noteInlineTitleInput.value, content: noteInlineEditor.value };
+  const key = noteDraftKey(activeWorkspaceId, noteId || `new:${noteDialogParentId}`);
+  const base = { title: noteInlineTitleInput.value, content: noteInlineEditor.value };
+  const cached = readNoteDraft(key);
+  noteEdit = pendingNoteEdits.get(key) || {
+    key, id: noteId, uid: currentUser.uid, workspaceId: activeWorkspaceId,
+    base, value: cached || base, local: Boolean(cached)
+  };
+  noteInlineTitleInput.value = noteEdit.value.title;
+  noteInlineEditor.value = noteEdit.value.content;
+  updateNoteStatus(noteEdit);
+  if (cached && noteId) scheduleNoteSync(noteEdit);
   setPreviewMode(!phoneLayout.matches);
   showFormatToolbar(false);
   updateLivePreview();
@@ -1019,21 +1103,131 @@ const livePreview = document.getElementById("note-live-preview");
 const formatToolbar = document.getElementById("note-format-toolbar");
 const formatToggle = document.getElementById("note-format-toggle");
 const previewToggle = document.getElementById("note-preview-toggle");
-const emojiToggle = document.getElementById("note-emoji-toggle");
-const emojiPicker = document.getElementById("note-emojis");
-let originalNote;
+const noteSaveStatus = document.getElementById("note-save-status");
+const pendingNoteEdits = new Map();
+let noteEdit;
 let previewFrame;
 
 function isEditingNote() {
   return !noteEditorWrapper.classList.contains("hidden");
 }
 
-function canLeaveNote() {
-  if (savingNote) return false;
-  const dirty = isEditingNote() && originalNote &&
-    (originalNote.title !== noteInlineTitleInput.value || originalNote.content !== noteInlineEditor.value);
-  return !dirty || window.confirm("Discard unsaved changes to this note?");
+function noteDraftKey(workspaceId, noteId) {
+  return `plop.draft:${currentUser.uid}:${workspaceId}:${noteId}`;
 }
+
+function draftsForWorkspace(workspaceId) {
+  const prefix = noteDraftKey(workspaceId, "");
+  const drafts = new Map();
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (!key.startsWith(prefix)) continue;
+      const id = key.slice(prefix.length);
+      if (!id.startsWith("new:")) drafts.set(id, key);
+    }
+  } catch {}
+  return drafts;
+}
+
+function readNoteDraft(key) {
+  try {
+    const draft = JSON.parse(localStorage.getItem(key));
+    return typeof draft?.title === "string" && typeof draft.content === "string" ? draft : null;
+  } catch {
+    return null;
+  }
+}
+
+function sameNote(a, b) {
+  return a?.title === b?.title && a?.content === b?.content;
+}
+
+function clearNoteDraft(edit, saved) {
+  if (!sameNote(readNoteDraft(edit.key), saved)) return;
+  try { localStorage.removeItem(edit.key); } catch {}
+}
+
+function updateNoteStatus(edit, message) {
+  if (noteEdit !== edit || !isEditingNote()) return;
+  noteSaveStatus.textContent = message || (sameNote(edit.base, edit.value) ? "" :
+    edit.local ? (navigator.onLine ? "Saved on this device" : "Offline · saved on this device") :
+    "Local storage unavailable");
+}
+
+function keepNoteDraft() {
+  if (!isEditingNote() || !noteEdit) return;
+  const edit = noteEdit;
+  const value = { title: noteInlineTitleInput.value, content: noteInlineEditor.value };
+  if (!sameNote(edit.value, value)) {
+    edit.value = value;
+    if (sameNote(edit.base, value) && !edit.syncing) {
+      try { localStorage.removeItem(edit.key); } catch {}
+      edit.local = false;
+    } else {
+      try {
+        localStorage.setItem(edit.key, JSON.stringify(value));
+        edit.local = true;
+      } catch {
+        edit.local = false;
+      }
+    }
+    if (edit.id) scheduleNoteSync(edit);
+  }
+  updateNoteStatus(edit);
+}
+
+function scheduleNoteSync(edit) {
+  pendingNoteEdits.set(edit.key, edit);
+  clearTimeout(edit.timer);
+  edit.timer = setTimeout(() => syncNoteDraft(edit), 800);
+}
+
+function syncNoteDraft(edit) {
+  if (!edit.id || edit.syncing) return;
+  if (currentUser?.uid !== edit.uid || sameNote(edit.base, edit.value)) {
+    pendingNoteEdits.delete(edit.key);
+    return;
+  }
+  const draft = edit.value;
+  if (draft.content.length > 100000 || draft.title.length > 200) {
+    updateNoteStatus(edit, "Note exceeds the sync limit");
+    pendingNoteEdits.delete(edit.key);
+    return;
+  }
+  const data = {};
+  if (draft.title !== edit.base.title) data.title = draft.title.trim() || "Untitled Note.md";
+  if (draft.content !== edit.base.content) data.content = draft.content;
+  edit.syncing = true;
+  pendingNoteEdits.set(edit.key, edit);
+  updateDoc(doc(db, "workspaces", edit.workspaceId, "items", edit.id), data).then(() => {
+    edit.base = draft;
+    clearNoteDraft(edit, draft);
+    updateNoteStatus(edit, sameNote(edit.value, draft) ? "Synced" : "");
+  }).catch(() => {
+    updateNoteStatus(edit, edit.local ? "Sync failed · draft kept on this device" : "Save failed");
+  }).finally(() => {
+    edit.syncing = false;
+    pendingNoteEdits.delete(edit.key);
+    if (!sameNote(draft, edit.value)) scheduleNoteSync(edit);
+  });
+}
+
+function canLeaveNote() {
+  if (!isEditingNote() || !noteEdit) return true;
+  keepNoteDraft();
+  if (sameNote(noteEdit.base, noteEdit.value) || noteEdit.local) return true;
+  return window.confirm("These edits could not be saved locally. Leave this note?");
+}
+
+window.addEventListener("online", () => {
+  if (isEditingNote() && noteEdit) {
+    updateNoteStatus(noteEdit);
+    syncNoteDraft(noteEdit);
+  }
+});
+window.addEventListener("offline", () => {
+  if (isEditingNote() && noteEdit) updateNoteStatus(noteEdit);
+});
 
 function setPreviewMode(enabled) {
   noteEditorWrapper.classList.toggle("show-live-preview", enabled);
@@ -1046,12 +1240,6 @@ function setPreviewMode(enabled) {
 function showFormatToolbar(visible) {
   formatToolbar.classList.toggle("hidden", !visible);
   formatToggle.setAttribute("aria-expanded", String(visible));
-  if (!visible) showEmojiPicker(false);
-}
-
-function showEmojiPicker(visible) {
-  emojiPicker.classList.toggle("hidden", !visible);
-  emojiToggle.setAttribute("aria-expanded", String(visible));
 }
 
 function updateLivePreview() {
@@ -1066,10 +1254,57 @@ function replaceNoteSelection(edit) {
     noteInlineEditor.setRangeText(edit.text, edit.start, edit.end);
   }
   noteInlineEditor.setSelectionRange(edit.selectionStart, edit.selectionEnd);
+  keepNoteDraft();
   updateLivePreview();
 }
 
-noteInlineEditor.addEventListener("input", updateLivePreview);
+noteInlineEditor.addEventListener("input", () => {
+  keepNoteDraft();
+  updateLivePreview();
+});
+noteInlineTitleInput.addEventListener("input", keepNoteDraft);
+
+async function clipboardImageMarkdown(file, limit) {
+  if (file.size > 20 * 1024 * 1024) throw new Error("Paste an image smaller than 20 MB.");
+  if (limit < 512) throw new Error("This note has too little space for an image.");
+  const bitmap = await createImageBitmap(file);
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  const scale = Math.min(1, 1200 / Math.max(bitmap.width, bitmap.height));
+  try {
+    for (const shrink of [1, 0.75, 0.5, 0.35, 0.25]) {
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale * shrink));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale * shrink));
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      for (const quality of [0.85, 0.66, 0.46]) {
+        const uri = canvas.toDataURL("image/webp", quality);
+        const markdown = `\n\n![Pasted image](${uri})\n\n`;
+        if (markdown.length <= limit) return markdown;
+      }
+    }
+  } finally {
+    bitmap.close();
+  }
+  throw new Error("This image is too large for the remaining space in the note.");
+}
+
+noteInlineEditor.addEventListener("paste", async (event) => {
+  const image = [...(event.clipboardData?.files || [])].find((file) => /^image\/(png|jpeg|webp|gif)$/i.test(file.type));
+  if (!image || !isEditingNote()) return;
+  event.preventDefault();
+  const edit = noteEdit;
+  try {
+    const remainingSpace = 100000 - noteInlineEditor.value.length +
+      (noteInlineEditor.selectionEnd - noteInlineEditor.selectionStart);
+    const text = await clipboardImageMarkdown(image, remainingSpace);
+    if (noteEdit !== edit || !isEditingNote()) return;
+    const { value, selectionStart: start, selectionEnd: end } = noteInlineEditor;
+    if (value.length - (end - start) + text.length > 100000) throw new Error("This note has too little space for the image.");
+    replaceNoteSelection({ start, end, text, selectionStart: start + text.length, selectionEnd: start + text.length });
+  } catch (error) {
+    if (noteEdit === edit && isEditingNote()) showToast(error.message || "Could not paste this image.", "error");
+  }
+});
 noteInlineEditor.addEventListener("select", () => {
   if (noteInlineEditor.selectionStart !== noteInlineEditor.selectionEnd) showFormatToolbar(true);
 });
@@ -1083,18 +1318,9 @@ previewToggle.addEventListener("click", () => {
 formatToolbar.addEventListener("mousedown", (event) => {
   if (event.target.closest("button")) event.preventDefault();
 });
-emojiToggle.addEventListener("click", () => showEmojiPicker(emojiPicker.classList.contains("hidden")));
 formatToolbar.addEventListener("click", (event) => {
-  const emoji = event.target.closest("button[data-emoji]")?.textContent;
-  if (emoji && !savingNote) {
-    const { selectionStart: start, selectionEnd: end } = noteInlineEditor;
-    const caret = start + emoji.length;
-    replaceNoteSelection({ start, end, text: emoji, selectionStart: caret, selectionEnd: caret });
-    showEmojiPicker(false);
-    return;
-  }
   const button = event.target.closest("button[data-format]");
-  if (!button || savingNote) return;
+  if (!button) return;
   const { value, selectionStart, selectionEnd } = noteInlineEditor;
   replaceNoteSelection(formatMarkdown(value, selectionStart, selectionEnd, button.dataset.format));
 });
@@ -1110,53 +1336,71 @@ activeNoteShareBtn?.addEventListener("click", () => {
 });
 
 activeNoteDiscardBtn?.addEventListener("click", () => {
-  if (savingNote) return;
+  if (!canLeaveNote()) return;
   if (editingNoteId && workspaceItems[editingNoteId]) {
     showPreviewState(workspaceItems[editingNoteId]);
   } else {
+    if (noteEdit?.local) showToast("Draft kept on this device.");
     currentPreviewItem = null;
     showEmptyState("Welcome to Plop", "Select a folder or link from the sidebar.");
   }
 });
 
 activeNoteSaveBtn?.addEventListener("click", async () => {
-  if (savingNote || !isEditingNote()) return;
-  savingNote = true;
-  noteInlineEditor.readOnly = true;
-  noteInlineTitleInput.readOnly = true;
-  const title = (noteInlineTitleInput?.value || "").trim() || "Untitled Note.md";
-  const content = noteInlineEditor?.value || "";
-
-  setButtonLoading(activeNoteSaveBtn, true, "Saving...");
-  try {
-    if (editingNoteId && workspaceItems[editingNoteId]) {
-      // Update existing note
-      await updateDoc(doc(db, "workspaces", activeWorkspaceId, "items", editingNoteId), {
-        title,
-        content
-      });
-      const updatedItem = { ...workspaceItems[editingNoteId], title, content };
-      workspaceItems[editingNoteId] = updatedItem;
-      currentPreviewItem = updatedItem;
-      showToast("Note saved!", "success");
-      showPreviewState(updatedItem);
-    } else {
-      // Create new note directly in viewer
-      const { noteId: newNoteId, noteDoc } = await createNoteItem(title, content, noteDialogParentId);
-      workspaceItems[newNoteId] = noteDoc;
-      selectedItemId = newNoteId;
-      currentPreviewItem = noteDoc;
-      showToast("Note created!", "success");
-      showPreviewState(noteDoc);
+  if (!isEditingNote() || !noteEdit || activeNoteSaveBtn.disabled) return;
+  keepNoteDraft();
+  const edit = noteEdit;
+  const data = { title: edit.value.title.trim() || "Untitled Note.md", content: edit.value.content };
+  if (data.title.length > 200 || data.content.length > 100000) {
+    updateNoteStatus(edit, "Note exceeds the sync limit");
+    return;
+  }
+  if (edit.id) {
+    syncNoteDraft(edit);
+    if (edit.local || sameNote(edit.base, edit.value)) {
+      showPreviewState({ ...workspaceItems[edit.id], ...data });
     }
-  } catch (err) {
-    console.error("Save note error:", err);
-    showToast("Failed to save note: " + err.message, "error");
+    return;
+  }
+
+  const noteId = generateUUID();
+  const note = buildNoteItem(noteId, data.title, data.content, noteDialogParentId);
+  const draft = edit.value;
+  const write = writeNoteItem(edit.workspaceId, note);
+  const noteKey = noteDraftKey(edit.workspaceId, noteId);
+  let local = false;
+  try {
+    localStorage.setItem(noteKey, JSON.stringify({ ...draft, recoveryKey: edit.key }));
+    local = true;
+    clearNoteDraft(edit, draft);
+  } catch {}
+  if (local) {
+    workspaceItems[noteId] = note;
+    selectedItemId = noteId;
+    showPreviewState(note);
+  } else {
+    setButtonLoading(activeNoteSaveBtn, true, "Saving…");
+  }
+  try {
+    await write;
+    clearNoteDraft({ key: noteKey }, draft);
+    clearNoteDraft(edit, draft);
+    if (!local && noteEdit === edit && isEditingNote()) {
+      workspaceItems[noteId] = note;
+      selectedItemId = noteId;
+      showPreviewState(note);
+    }
+  } catch (error) {
+    if (noteEdit === edit && isEditingNote()) updateNoteStatus(edit, "Could not sync this note");
+    else showToast("Could not sync this note. Your draft is still on this device.", "error");
+    if (local && !readNoteDraft(edit.key)) {
+      try {
+        localStorage.setItem(edit.key, JSON.stringify(readNoteDraft(noteKey) || draft));
+        localStorage.removeItem(noteKey);
+      } catch {}
+    }
   } finally {
-    savingNote = false;
-    noteInlineEditor.readOnly = false;
-    noteInlineTitleInput.readOnly = false;
-    setButtonLoading(activeNoteSaveBtn, false);
+    if (!local) setButtonLoading(activeNoteSaveBtn, false);
   }
 });
 
@@ -1178,7 +1422,7 @@ noteEditorWrapper.addEventListener("keydown", (event) => {
     activeNoteSaveBtn.click();
   }
   const style = { b: "bold", i: "italic", u: "underline" }[event.key.toLowerCase()];
-  if (style && !event.shiftKey && !event.altKey && event.target === noteInlineEditor && !savingNote) {
+  if (style && !event.shiftKey && !event.altKey && event.target === noteInlineEditor ) {
     event.preventDefault();
     const { value, selectionStart, selectionEnd } = noteInlineEditor;
     replaceNoteSelection(formatMarkdown(value, selectionStart, selectionEnd, style));
@@ -1231,7 +1475,7 @@ document.getElementById("warning-try-viewer")?.addEventListener("click", () => {
 document.getElementById("preview-back-btn")?.addEventListener("click", () => {
   if (!canLeaveNote()) return;
   selectedItemId = null;
-  previewIframe.src = "";
+  previewIframe.src = "about:blank";
   currentPreviewItem = null;
   showEmptyState("Welcome to Plop", "Select a folder or link from the sidebar.");
 });
@@ -1346,18 +1590,12 @@ async function moveItem(sourceId, targetId, zone) {
     newParentId = targetItem.parentId;
   }
 
-  // Prevent no-op (same parent + same position edge case)
-  if (oldParentId === newParentId && zone !== "inside") {
-    // Still allow reorder within same parent
-  }
-
-  // 1. Remove from old parent
-  removeFromParent(batch, sourceId, oldParentId);
+  if (newParentId === sourceId || isDescendantOf(newParentId, sourceId)) return;
+  if (oldParentId !== newParentId) removeFromParent(batch, sourceId, oldParentId);
 
   // 2. Add to new parent
   if (zone === "inside") {
-    const newChildren = [...(targetItem.childrenIds || []).filter(id => id !== sourceId), sourceId];
-    batch.update(doc(db, "workspaces", activeWorkspaceId, "items", targetId), { childrenIds: newChildren });
+    batch.update(doc(db, "workspaces", activeWorkspaceId, "items", targetId), { childrenIds: arrayUnion(sourceId) });
   } else {
     addToParentAtPosition(batch, sourceId, targetId, newParentId, zone === "after");
   }
@@ -1380,7 +1618,7 @@ async function moveItem(sourceId, targetId, zone) {
   batch.update(doc(db, "workspaces", activeWorkspaceId, "items", sourceId), srcUpdate);
 
   // 5. Propagate sharedVia change to all descendants of source
-  propagateSharedVia(batch, sourceId, newSharedVia, true /* skip root, already handled */);
+  propagateSharedVia(batch, sourceId, newSharedVia);
 
   try {
     await batch.commit();
@@ -1389,16 +1627,15 @@ async function moveItem(sourceId, targetId, zone) {
   }
 }
 
+function parentDocument(workspaceId, parentId) {
+  const path = ["workspaces", workspaceId];
+  if (parentId !== "root") path.push("items", parentId);
+  return doc(db, ...path);
+}
+
 function removeFromParent(batch, itemId, parentId) {
-  if (parentId === "root") {
-    const filtered = (activeWorkspace.childrenIds || []).filter(id => id !== itemId);
-    batch.update(doc(db, "workspaces", activeWorkspaceId), { childrenIds: filtered });
-  } else {
-    const parent = workspaceItems[parentId];
-    if (parent) {
-      const filtered = (parent.childrenIds || []).filter(id => id !== itemId);
-      batch.update(doc(db, "workspaces", activeWorkspaceId, "items", parentId), { childrenIds: filtered });
-    }
+  if (parentId === "root" || workspaceItems[parentId]) {
+    batch.update(parentDocument(activeWorkspaceId, parentId), { childrenIds: arrayRemove(itemId) });
   }
 }
 
@@ -1421,17 +1658,13 @@ function addToParentAtPosition(batch, sourceId, targetId, parentId, insertAfter)
 }
 
 // Propagate sharedVia change to all descendants of folderId
-function propagateSharedVia(batch, folderId, sharedVia, skipRoot = false) {
-  if (!skipRoot) {
-    const upd = sharedVia ? { sharedVia } : { sharedVia: deleteField() };
-    batch.update(doc(db, "workspaces", activeWorkspaceId, "items", folderId), upd);
-  }
-  const item = workspaceItems[folderId];
-  if (!item?.childrenIds) return;
-  for (const childId of item.childrenIds) {
-    const upd = sharedVia ? { sharedVia } : { sharedVia: deleteField() };
-    batch.update(doc(db, "workspaces", activeWorkspaceId, "items", childId), upd);
-    propagateSharedVia(batch, childId, sharedVia, false);
+function propagateSharedVia(batch, folderId, sharedVia) {
+  for (const childId of getAllDescendants(folderId)) {
+    const child = workspaceItems[childId];
+    if ((child.sharedVia || null) === sharedVia) continue;
+    batch.update(doc(db, "workspaces", activeWorkspaceId, "items", childId), {
+      sharedVia: sharedVia || deleteField()
+    });
   }
 }
 
@@ -1461,6 +1694,9 @@ function showContextMenu(itemId, clientX, clientY, itemType) {
   ownerOnlyActions.forEach(id => {
     document.getElementById(id)?.classList.toggle("hidden", isSharedView);
   });
+
+  document.getElementById("ctx-move-space").classList.toggle("hidden", isSharedView);
+  document.getElementById("ctx-folder-to-space").classList.toggle("hidden", isSharedView || !isFolder);
 
   // Label: "Rename" for folders, "Edit" for links & notes
   document.getElementById("ctx-rename-label").textContent = isFolder ? "Rename" : "Edit";
@@ -1688,6 +1924,158 @@ document.getElementById("add-folder-btn")?.addEventListener("click", () => {
   setTimeout(() => document.getElementById("folder-title-input").focus(), 50);
 });
 
+const moveSpaceDialog = document.getElementById("move-space-dialog");
+const moveSpaceSubmit = document.getElementById("move-space-submit");
+const moveSpaceCancel = document.getElementById("move-space-cancel");
+let spaceMove;
+
+function openSpaceMove(promote) {
+  const id = contextMenuTargetId;
+  const item = workspaceItems[id];
+  if (isSharedView || !item || (promote && item.type !== "folder") || !canLeaveNote()) return;
+  itemContextMenu.hidePopover();
+  spaceMove = { id, promote, source: activeWorkspaceId };
+  const destinations = spaces.filter((space) => space.id !== activeWorkspaceId);
+  const select = document.getElementById("move-space-select");
+  const name = document.getElementById("move-space-name");
+  select.replaceChildren(...destinations.map((space) => new Option(space.title, space.id)));
+  select.disabled = promote;
+  name.required = promote;
+  name.value = item.title.slice(0, 50);
+  document.getElementById("move-space-title").textContent = promote ? "Turn into space" : "Move to space";
+  document.getElementById("move-space-desc").textContent = promote
+    ? `The contents of “${item.title}” will become the new space’s top-level items.`
+    : destinations.length ? `Move “${item.title}” to the top level of another space.` : "Create another space before moving an item.";
+  document.getElementById("move-space-destination").classList.toggle("hidden", promote);
+  document.getElementById("move-space-name-group").classList.toggle("hidden", !promote);
+  document.getElementById("move-space-shares").classList.toggle("hidden",
+    ![id, ...getAllDescendants(id)].some((childId) => workspaceItems[childId]?.sharedVia === childId));
+  document.getElementById("move-space-error").classList.add("hidden");
+  moveSpaceSubmit.disabled = !promote && !destinations.length;
+  moveSpaceSubmit.textContent = promote ? "Create space" : "Move";
+  moveSpaceDialog.showModal();
+}
+
+document.getElementById("ctx-move-space").addEventListener("click", () => openSpaceMove(false));
+document.getElementById("ctx-folder-to-space").addEventListener("click", () => openSpaceMove(true));
+moveSpaceCancel.addEventListener("click", () => moveSpaceDialog.close());
+moveSpaceDialog.addEventListener("cancel", (event) => {
+  if (moveSpaceCancel.disabled) event.preventDefault();
+});
+
+async function moveItemsAcrossSpaces(source, id, destination, promote) {
+  if (source === destination) throw new Error("Choose a different destination space.");
+  const sourceItem = (itemId) => doc(db, "workspaces", source, "items", itemId);
+  const targetSpace = parentDocument(destination, "root");
+  const sourceSpace = parentDocument(source, "root");
+
+  await runTransaction(db, async (transaction) => {
+    const [rootSnapshot, destinationSnapshot] = await Promise.all([
+      transaction.get(sourceItem(id)), transaction.get(targetSpace)
+    ]);
+    if (!rootSnapshot.exists() || !destinationSnapshot.exists()) throw new Error("The item or destination is unavailable.");
+    const root = rootSnapshot.data();
+    if (root.id !== id) throw new Error("The item has an invalid ID.");
+    if (promote && root.type !== "folder") throw new Error("Only a folder can become a space.");
+    const sourceParent = root.parentId === "root" ? sourceSpace : sourceItem(root.parentId);
+    const parentSnapshot = await transaction.get(sourceParent);
+    if (!parentSnapshot.data()?.childrenIds?.includes(id)) throw new Error("The item’s location changed. Try again.");
+
+    const items = new Map([[id, root]]);
+    let parents = [root];
+    while (parents.length) {
+      const children = parents.flatMap((item) => (item.childrenIds || []).map((childId) => ({ childId, parent: item.id })));
+      if (items.size + children.length > 249) throw new Error("This folder is too large to move in one step. Move smaller folders first.");
+      parents = [];
+      const snapshots = await Promise.all(children.map(({ childId }) => transaction.get(sourceItem(childId))));
+      snapshots.forEach((snapshot, position) => {
+        const data = snapshot.data();
+        if (!data || data.id !== snapshot.id || data.parentId !== children[position].parent || items.has(snapshot.id)) {
+          throw new Error("This folder changed or contains an invalid item. Refresh and try again.");
+        }
+        items.set(snapshot.id, data);
+        if (data.type === "folder") parents.push(data);
+      });
+    }
+
+    for (const itemId of items.keys()) {
+      if (readNoteDraft(noteDraftKey(source, itemId)) || pendingNoteEdits.has(noteDraftKey(source, itemId))) {
+        throw new Error("Wait for note edits in this folder to sync before moving it.");
+      }
+    }
+    const shareRefs = [...items.values()].filter((item) => item.sharedVia === item.id)
+      .map((item) => doc(db, "sharedFolders", item.id));
+    const shares = await Promise.all(shareRefs.map((reference) => transaction.get(reference)));
+    const activeShares = shares.filter((snapshot) => snapshot.data()?.workspaceId === source);
+    const transferIds = [...items.keys()].filter((itemId) => !promote || itemId !== id);
+    const targetRefs = transferIds.map((itemId) => doc(db, "workspaces", destination, "items", itemId));
+    const targetItems = await Promise.all(targetRefs.map((reference) => transaction.get(reference)));
+    if (targetItems.some((snapshot) => snapshot.exists())) throw new Error("An item with the same ID is already in the destination.");
+    if (items.size + transferIds.length + activeShares.length + 2 > 500) {
+      throw new Error("This folder is too large to move in one step. Move smaller folders first.");
+    }
+    const rootIds = promote ? (root.childrenIds || []) : [id];
+    if ((destinationSnapshot.data().childrenIds || []).length + rootIds.length > 500) {
+      throw new Error("The destination space has reached its top-level item limit.");
+    }
+
+    // All reads above participate in the same transaction as the move.
+    transferIds.forEach((itemId, index) => {
+      const { sharedVia, ...item } = items.get(itemId);
+      if (itemId === id || (promote && item.parentId === id)) item.parentId = "root";
+      transaction.set(targetRefs[index], item);
+    });
+    for (const itemId of items.keys()) transaction.delete(sourceItem(itemId));
+    for (const snapshot of activeShares) transaction.delete(snapshot.ref);
+    transaction.update(sourceParent, { childrenIds: arrayRemove(id) });
+    if (rootIds.length) transaction.update(targetSpace, { childrenIds: arrayUnion(...rootIds) });
+  });
+}
+
+document.getElementById("move-space-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!spaceMove || moveSpaceSubmit.disabled) return;
+  const { source, id, promote } = spaceMove;
+  const title = document.getElementById("move-space-name").value.trim();
+  if (promote && !title) return;
+  const errorLabel = document.getElementById("move-space-error");
+  errorLabel.classList.add("hidden");
+  setButtonLoading(moveSpaceSubmit, true, "Moving…");
+  moveSpaceCancel.disabled = true;
+
+  let created;
+  let moved = false;
+  try {
+    if (!navigator.onLine) throw new Error("Reconnect to move items between spaces.");
+    if (promote) {
+      created = await createWorkspace(title, activeWorkspace.authorName || "guest", activeWorkspace.themeColor || "purple", "");
+    }
+    const destination = created?.id || document.getElementById("move-space-select").value;
+    if (!destination) throw new Error("Choose a destination space.");
+    await moveItemsAcrossSpaces(source, id, destination, promote);
+    moved = true;
+    if (created) {
+      if (!spaces.some((space) => space.id === destination)) spaces.push(created);
+      loadWorkspace(destination);
+    }
+    moveSpaceDialog.close();
+    showToast(promote ? "Space created." : "Moved to space.", "success");
+  } catch (error) {
+    if (created && !moved) {
+      const reference = parentDocument(created.id, "root");
+      await runTransaction(db, async (transaction) => {
+        const snapshot = await transaction.get(reference);
+        if (snapshot.exists() && !snapshot.data().childrenIds?.length) transaction.delete(reference);
+      }).catch(() => {});
+    }
+    errorLabel.textContent = error.message;
+    errorLabel.classList.remove("hidden");
+  } finally {
+    setButtonLoading(moveSpaceSubmit, false);
+    moveSpaceCancel.disabled = false;
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────
 // FOLDER DIALOG
 // ─────────────────────────────────────────────────────────────────────
@@ -1722,16 +2110,7 @@ folderDialog.querySelector("form").addEventListener("submit", async (e) => {
 
   batch.set(doc(db, "workspaces", activeWorkspaceId, "items", folderId), folderDoc);
 
-  if (parentId === "root") {
-    batch.update(doc(db, "workspaces", activeWorkspaceId), {
-      childrenIds: [...(activeWorkspace.childrenIds || []), folderId]
-    });
-  } else {
-    const parent = workspaceItems[parentId];
-    batch.update(doc(db, "workspaces", activeWorkspaceId, "items", parentId), {
-      childrenIds: [...(parent?.childrenIds || []), folderId]
-    });
-  }
+  batch.update(parentDocument(activeWorkspaceId, parentId), { childrenIds: arrayUnion(folderId) });
 
   try {
     await batch.commit();
@@ -1771,16 +2150,7 @@ async function createLinkItem(url, title, parentId) {
 
   batch.set(doc(db, "workspaces", activeWorkspaceId, "items", linkId), linkDoc);
 
-  if (parentId === "root") {
-    batch.update(doc(db, "workspaces", activeWorkspaceId), {
-      childrenIds: [...(activeWorkspace.childrenIds || []), linkId]
-    });
-  } else {
-    const parent = workspaceItems[parentId];
-    batch.update(doc(db, "workspaces", activeWorkspaceId, "items", parentId), {
-      childrenIds: [...(parent?.childrenIds || []), linkId]
-    });
-  }
+  batch.update(parentDocument(activeWorkspaceId, parentId), { childrenIds: arrayUnion(linkId) });
 
   await batch.commit();
   return { linkId, linkDoc };
@@ -1814,114 +2184,28 @@ linkDialog.querySelector("form").addEventListener("submit", async (e) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// NOTE DIALOG & MARKDOWN UPLOADER
+// NOTE STORAGE & MARKDOWN UPLOADER
 // ─────────────────────────────────────────────────────────────────────
 
-function openNoteDialog(noteId = null, parentId = "root") {
-  editingNoteId = noteId;
-  noteDialogParentId = parentId && workspaceItems[parentId]?.type === "folder" ? parentId : "root";
-
-  const dialogTitle   = document.getElementById("note-dialog-title");
-  const titleInput    = document.getElementById("note-title-input");
-  const contentInput  = document.getElementById("note-content-input");
-
-  if (noteId && workspaceItems[noteId]) {
-    const item = workspaceItems[noteId];
-    if (dialogTitle)  dialogTitle.textContent = "Edit Note";
-    if (titleInput)   titleInput.value   = item.title || "";
-    if (contentInput) contentInput.value = item.content || "";
-  } else {
-    if (dialogTitle)  dialogTitle.textContent = "New Note";
-    if (titleInput)   titleInput.value   = "";
-    if (contentInput) contentInput.value = "";
-  }
-
-  try { noteDialog.showModal(); } catch (err) { console.error("Note modal error:", err); }
-  setTimeout(() => titleInput?.focus(), 50);
-}
-
-document.getElementById("note-cancel-btn")?.addEventListener("click", () => noteDialog.close());
-
-const noteSaveBtn = document.getElementById("note-save-btn");
-
-noteDialog?.querySelector("form")?.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const title   = document.getElementById("note-title-input").value.trim();
-  const content = document.getElementById("note-content-input").value;
-  if (!title) return;
-
-  setButtonLoading(noteSaveBtn, true, "Saving Note...");
-
-  if (editingNoteId && workspaceItems[editingNoteId]) {
-    // Edit existing note
-    try {
-      await updateDoc(doc(db, "workspaces", activeWorkspaceId, "items", editingNoteId), {
-        title,
-        content
-      });
-      showToast("Note saved successfully!", "success");
-      const updatedItem = { ...workspaceItems[editingNoteId], title, content };
-      if (selectedItemId === editingNoteId) {
-        showPreviewState(updatedItem);
-      }
-      noteDialog.close();
-    } catch (err) {
-      console.error("Update note failed:", err);
-      showToast("Failed to save note: " + err.message, "error");
-    } finally {
-      setButtonLoading(noteSaveBtn, false);
-    }
-  } else {
-    // Create new note
-    try {
-      const { noteId: newNoteId, noteDoc } = await createNoteItem(title, content, noteDialogParentId);
-      // Optimistically add to local cache so preview works immediately (before snapshot fires)
-      workspaceItems[newNoteId] = noteDoc;
-      selectedItemId = newNoteId;
-      showToast("Note created successfully!", "success");
-      noteDialog.close();
-      showPreviewState(noteDoc);
-    } catch (err) {
-      console.error("Create note failed:", err);
-      showToast("Failed to create note: " + err.message, "error");
-    } finally {
-      setButtonLoading(noteSaveBtn, false);
-    }
-  }
-});
-
-async function createNoteItem(title, content, parentId) {
-  const noteId    = generateUUID();
-  const batch     = writeBatch(db);
-  const sharedVia = parentId === "root" ? null : (workspaceItems[parentId]?.sharedVia || null);
-
-  const noteDoc = {
-    id: noteId,
-    parentId,
-    type: "note",
-    title,
-    content: content || "",
-    createdAt: Date.now(),
+function buildNoteItem(id, title, content, parentId) {
+  const sharedVia = workspaceItems[parentId]?.sharedVia;
+  return {
+    id, parentId, type: "note", title, content, createdAt: Date.now(),
     ...(sharedVia ? { sharedVia } : {})
   };
+}
 
-  batch.set(doc(db, "workspaces", activeWorkspaceId, "items", noteId), noteDoc);
+function writeNoteItem(workspaceId, note) {
+  const batch = writeBatch(db);
+  batch.set(doc(db, "workspaces", workspaceId, "items", note.id), note);
+  batch.update(parentDocument(workspaceId, note.parentId), { childrenIds: arrayUnion(note.id) });
+  return batch.commit();
+}
 
-  if (parentId === "root") {
-    batch.update(doc(db, "workspaces", activeWorkspaceId), {
-      childrenIds: [...(activeWorkspace.childrenIds || []), noteId]
-    });
-  } else {
-    const parent = workspaceItems[parentId];
-    batch.update(doc(db, "workspaces", activeWorkspaceId, "items", parentId), {
-      childrenIds: [...(parent?.childrenIds || []), noteId]
-    });
-  }
-
-  await batch.commit();
-  // Return both the ID and the constructed doc so callers can optimistically
-  // show the preview before the onSnapshot fires
-  return { noteId, noteDoc };
+async function createNoteItem(title, content, parentId) {
+  const noteDoc = buildNoteItem(generateUUID(), title, content || "", parentId);
+  await writeNoteItem(activeWorkspaceId, noteDoc);
+  return { noteId: noteDoc.id, noteDoc };
 }
 
 markdownFileInput?.addEventListener("change", (e) => {
@@ -2139,7 +2423,7 @@ async function setFolderSharing(folderId, enable) {
     });
 
     // All descendants get sharedVia = folderId
-    propagateSharedVia(batch, folderId, folderId, true /* skip root, already done */);
+    propagateSharedVia(batch, folderId, folderId);
   } else {
     // Delete sharedFolders entry
     batch.delete(doc(db, "sharedFolders", folderId));
@@ -2148,7 +2432,7 @@ async function setFolderSharing(folderId, enable) {
     batch.update(doc(db, "workspaces", activeWorkspaceId, "items", folderId), {
       sharedVia: deleteField()
     });
-    propagateSharedVia(batch, folderId, null, true);
+    propagateSharedVia(batch, folderId, null);
   }
 
   await batch.commit();
@@ -2244,10 +2528,12 @@ document.getElementById("note-share-close-btn")?.addEventListener("click", () =>
 
 function openWorkspaceDialog(space) {
   creatingSpace = !space;
+  spaceIconChanged = creatingSpace;
   document.getElementById("workspace-dialog-title").textContent = creatingSpace ? "New space" : "Space settings";
   document.getElementById("workspace-title-input").value = space?.title || "";
   document.getElementById("workspace-author-input").value = space?.authorName || "";
-  document.getElementById("workspace-icon-input").value = space?.icon || "";
+  selectedSpaceIcon = presetSpaceIcons.has(space && effectiveSpaceIcon(space)) ? effectiveSpaceIcon(space) : "preset-box";
+  syncSpaceIconPicker();
   document.getElementById("workspace-error").classList.add("hidden");
   selectedThemeColor = space?.themeColor || "purple";
   syncThemeColorPicker(selectedThemeColor);
@@ -2258,10 +2544,24 @@ document.getElementById("rename-workspace-btn").addEventListener("click", () => 
   if (activeWorkspace && !isSharedView) openWorkspaceDialog(activeWorkspace);
 });
 document.getElementById("new-space").addEventListener("click", () => {
-  if (currentUser && !isSharedView && !savingNote) openWorkspaceDialog(null);
+  if (currentUser && !isSharedView) openWorkspaceDialog(null);
 });
 
 document.getElementById("workspace-cancel-btn").addEventListener("click", () => workspaceDialog.close());
+
+function syncSpaceIconPicker() {
+  for (const button of spaceIconPicker.querySelectorAll("[data-icon]")) {
+    button.setAttribute("aria-pressed", String(button.dataset.icon === selectedSpaceIcon));
+  }
+}
+
+spaceIconPicker.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-icon]");
+  if (!button) return;
+  selectedSpaceIcon = button.dataset.icon;
+  spaceIconChanged = true;
+  syncSpaceIconPicker();
+});
 
 // Theme color dots
 document.getElementById("theme-color-picker").querySelectorAll(".color-dot").forEach(dot => {
@@ -2286,7 +2586,7 @@ document.getElementById("workspace-form").addEventListener("submit", async (e) =
   const title      = document.getElementById("workspace-title-input").value.trim();
   const authorName = document.getElementById("workspace-author-input").value.trim() ||
                      activeWorkspace?.authorName || "guest";
-  const icon = document.getElementById("workspace-icon-input").value.trim();
+  const icon = selectedSpaceIcon;
   if (!title) return;
 
   const saveBtn = document.getElementById("workspace-save-btn");
@@ -2297,15 +2597,41 @@ document.getElementById("workspace-form").addEventListener("submit", async (e) =
   errorEl.classList.add("hidden");
 
   try {
+    let savedSpace;
+    let localIcon = false;
     if (creatingSpace) {
-      const space = await createWorkspace(title, authorName, selectedThemeColor, icon);
-      if (!spaces.some((entry) => entry.id === space.id)) spaces.push(space);
-      loadWorkspace(space.id);
+      try {
+        savedSpace = await createWorkspace(title, authorName, selectedThemeColor, icon);
+      } catch (error) {
+        if (error.code !== "permission-denied") throw error;
+        savedSpace = await createWorkspace(title, authorName, selectedThemeColor, "");
+        localIcon = true;
+      }
+      if (!spaces.some((entry) => entry.id === savedSpace.id)) spaces.push(savedSpace);
     } else {
-      await updateDoc(doc(db, "workspaces", activeWorkspaceId), {
-        title, authorName, themeColor: selectedThemeColor, icon: icon || deleteField()
-      });
+      savedSpace = activeWorkspace;
+      const reference = doc(db, "workspaces", savedSpace.id);
+      const changes = { title, authorName, themeColor: selectedThemeColor };
+      const cloudIcon = icon === "preset-box" ? null : icon;
+      if (!spaceIconChanged || cloudIcon === (savedSpace.icon || null)) {
+        await updateDoc(reference, changes);
+      } else {
+        try {
+          await updateDoc(reference, { ...changes, icon: cloudIcon || deleteField() });
+        } catch (error) {
+          if (error.code !== "permission-denied") throw error;
+          await updateDoc(reference, changes);
+          localIcon = true;
+        }
+      }
     }
+    if (spaceIconChanged && !saveLocalSpaceIcon(savedSpace, localIcon ? icon : null) && localIcon) {
+      throw new Error("This browser could not store your icon. Space details were saved.");
+    }
+    if (creatingSpace) loadWorkspace(savedSpace.id);
+    if (activeWorkspace) showWorkspaceIdentity(activeWorkspace);
+    renderSpaces();
+    if (localIcon) showToast("Icon saved on this device. Cloud rules need the icon field to sync it.");
     workspaceDialog.close();
   } catch (err) {
     console.error("Workspace save error:", err);
@@ -2445,22 +2771,10 @@ window.addEventListener("keydown", async (e) => {
             ...(sharedVia ? { sharedVia } : {})
           };
           batch.set(doc(db, "workspaces", activeWorkspaceId, "items", linkId), linkDoc);
-          workspaceItems[linkId] = linkDoc; // Optimistic update
+
         }
 
-        if (parentId === "root") {
-          batch.update(doc(db, "workspaces", activeWorkspaceId), {
-            childrenIds: [...(activeWorkspace.childrenIds || []), ...newLinkIds]
-          });
-        } else {
-          const parent = workspaceItems[parentId];
-          batch.update(doc(db, "workspaces", activeWorkspaceId, "items", parentId), {
-            childrenIds: [...(parent?.childrenIds || []), ...newLinkIds]
-          });
-          // Ensure target folder is open, all others preserve collapsed state
-          collapsedFolderIds.delete(parentId);
-          saveCollapsedState();
-        }
+        batch.update(parentDocument(activeWorkspaceId, parentId), { childrenIds: arrayUnion(...newLinkIds) });
 
         await batch.commit();
         toast.remove();
@@ -2479,10 +2793,11 @@ window.addEventListener("keydown", async (e) => {
 // ─────────────────────────────────────────────────────────────────────
 
 function generateUUID() {
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
-    const r = (Math.random() * 16) | 0;
-    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
-  });
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 15) | 64;
+  bytes[8] = (bytes[8] & 63) | 128;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function getDomain(url) {
@@ -2492,7 +2807,7 @@ function getDomain(url) {
 function isValidUrl(str) {
   try {
     const u = new URL(str);
-    return (u.protocol === "http:" || u.protocol === "https:") && Boolean(u.hostname);
+    return (u.protocol === "http:" || u.protocol === "https:") && Boolean(u.hostname) && !u.username && !u.password && str.length <= 500;
   } catch {
     return false;
   }
@@ -2522,33 +2837,36 @@ function normalizeUrl(str) {
 function parseUrlsFromText(text) {
   if (!text) return [];
   const tokens = text.split(/[\r\n,;\s]+/).map(s => s.trim()).filter(Boolean);
-  const results = [];
+  const results = new Set();
   for (const token of tokens) {
     const normalized = normalizeUrl(token);
-    if (normalized && !results.includes(normalized)) {
-      results.push(normalized);
-    }
+    if (normalized) results.add(normalized);
+    if (results.size === 500) break;
   }
-  return results;
+  return [...results];
 }
 
 // Returns true if `targetId` is a descendant of `ancestorId`
 function isDescendantOf(targetId, ancestorId) {
-  const target = workspaceItems[targetId];
-  if (!target || !ancestorId) return false;
-  if (target.parentId === ancestorId) return true;
-  if (target.parentId === "root") return false;
-  return isDescendantOf(target.parentId, ancestorId);
+  const visited = new Set();
+  while (targetId && targetId !== "root" && !visited.has(targetId)) {
+    if (targetId === ancestorId) return true;
+    visited.add(targetId);
+    targetId = workspaceItems[targetId]?.parentId;
+  }
+  return false;
 }
 
-// Returns flat list of all descendant IDs of a folder
 function getAllDescendants(folderId) {
-  const result = [];
-  const folder = workspaceItems[folderId];
-  if (!folder?.childrenIds) return result;
-  folder.childrenIds.forEach(childId => {
-    result.push(childId);
-    result.push(...getAllDescendants(childId));
-  });
-  return result;
+  const visited = new Set([folderId]);
+  const pending = [...(workspaceItems[folderId]?.childrenIds || [])];
+  while (pending.length) {
+    const id = pending.pop();
+    const item = workspaceItems[id];
+    if (!item || visited.has(id)) continue;
+    visited.add(id);
+    pending.push(...(item.childrenIds || []));
+  }
+  visited.delete(folderId);
+  return [...visited];
 }
