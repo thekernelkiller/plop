@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Plop — Bookmark Management & Sharing</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='p' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23A78BFA'/%3E%3Cstop offset='100%25' stop-color='%237C3AED'/%3E%3C/linearGradient%3E%3ClinearGradient id='b' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%2360A5FA'/%3E%3Cstop offset='100%25' stop-color='%232563EB'/%3E%3C/linearGradient%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%2334D399'/%3E%3Cstop offset='100%25' stop-color='%23059669'/%3E%3C/linearGradient%3E%3ClinearGradient id='y' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23FBBF24'/%3E%3Cstop offset='100%25' stop-color='%23D97706'/%3E%3C/linearGradient%3E%3ClinearGradient id='r' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23F87171'/%3E%3Cstop offset='100%25' stop-color='%23DC2626'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M50 15 C50 15, 80 45, 80 65 A30 30 0 1 1 20 65 C20 45, 50 15, 50 15 Z' fill='url(%23p)' opacity='0.85' transform='translate(50, 65) rotate(-28) scale(0.86) translate(-50, -65)'/%3E%3Cpath d='M50 15 C50 15, 80 45, 80 65 A30 30 0 1 1 20 65 C20 45, 50 15, 50 15 Z' fill='url(%23b)' opacity='0.85' transform='translate(50, 65) rotate(-14) scale(0.93) translate(-50, -65)'/%3E%3Cpath d='M50 15 C50 15, 80 45, 80 65 A30 30 0 1 1 20 65 C20 45, 50 15, 50 15 Z' fill='url(%23g)' opacity='0.9'/%3E%3Cpath d='M50 15 C50 15, 80 45, 80 65 A30 30 0 1 1 20 65 C20 45, 50 15, 50 15 Z' fill='url(%23y)' opacity='0.85' transform='translate(50, 65) rotate(14) scale(0.93) translate(-50, -65)'/%3E%3Cpath d='M50 15 C50 15, 80 45, 80 65 A30 30 0 1 1 20 65 C20 45, 50 15, 50 15 Z' fill='url(%23r)' opacity='0.85' transform='translate(50, 65) rotate(28) scale(0.86) translate(-50, -65)'/%3E%3C/svg%3E">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Plop — Notes and links</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23364237'/%3E%3Ctext x='32' y='44' text-anchor='middle' font-size='42' font-family='Georgia' fill='%23f4f6ed'%3Ep%3C/text%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
   
   <!-- Popover Polyfill for older browsers -->
@@ -18,62 +18,59 @@
   </script>
 </head>
 <body>
+  <svg class="icon-library" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="icon-sidebar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M9 5v14"/></symbol>
+    <symbol id="icon-space" viewBox="0 0 24 24"><path d="M12 3 21 8v8l-9 5-9-5V8Z"/><path d="M12 8v8m-4-4h8"/></symbol>
+    <symbol id="icon-note" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="3"/><path d="M9 9h6m-6 4h6m-6 4h3"/></symbol>
+    <symbol id="icon-folder" viewBox="0 0 24 24"><path d="M3 8a3 3 0 0 1 3-3h4l2 2h6a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3Z"/></symbol>
+    <symbol id="icon-link" viewBox="0 0 24 24"><path d="m9.5 14.5 5-5M8.5 16l-1 1a3.5 3.5 0 0 1-5-5l4-4a3.5 3.5 0 0 1 5 0m1 8a3.5 3.5 0 0 0 5 0l4-4a3.5 3.5 0 0 0-5-5l-1 1"/></symbol>
+    <symbol id="icon-more" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3"/></symbol>
+    <symbol id="icon-down" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
+    <symbol id="icon-left" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
+    <symbol id="icon-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+    <symbol id="icon-back" viewBox="0 0 24 24"><path d="m11 6-6 6 6 6m-6-6h14"/></symbol>
+    <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="icon-edit" viewBox="0 0 24 24"><path d="m14 6 4 4M5 19l4-.8L20 7a1.5 1.5 0 0 0 0-2.1l-.9-.9a1.5 1.5 0 0 0-2.1 0L6 15Z"/></symbol>
+    <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="3"/><path d="M16 5a2 2 0 0 0-2-1H7a3 3 0 0 0-3 3v7a2 2 0 0 0 1 2"/></symbol>
+    <symbol id="icon-share" viewBox="0 0 24 24"><path d="M7 11v7a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-7M12 15V4m-4 4 4-4 4 4"/></symbol>
+    <symbol id="icon-check" viewBox="0 0 24 24"><path d="m6 12 4 4 8-8"/></symbol>
+    <symbol id="icon-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="3"/><path d="M8 10V8a4 4 0 0 1 8 0v2"/></symbol>
+    <symbol id="icon-person" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3"/><path d="M5 20v-1a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v1"/></symbol>
+    <symbol id="icon-settings" viewBox="0 0 24 24"><path d="M5 7h5m4 0h5M5 17h9m4 0h1"/><circle cx="12" cy="7" r="2"/><circle cx="16" cy="17" r="2"/></symbol>
+    <symbol id="icon-file" viewBox="0 0 24 24"><path d="M8 3h5l5 5v10a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3Z"/><path d="M13 3v5h5"/></symbol>
+    <symbol id="icon-external" viewBox="0 0 24 24"><path d="M14 5h5v5m0-5-8 8M11 6H7a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-4"/></symbol>
+    <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M5 7h14m-9-3h4M7 7l1 12h8l1-12m-7 4v4m4-4v4"/></symbol>
+    <symbol id="icon-upload" viewBox="0 0 24 24"><path d="M12 15V4m-4 4 4-4 4 4M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/></symbol>
+  </svg>
+  <button type="button" id="sidebar-toggle" class="icon-btn sidebar-toggle" aria-label="Toggle sidebar" aria-expanded="true" title="Toggle sidebar (Ctrl/⌘+S)">
+    <svg class="plop-icon" aria-hidden="true"><use href="#icon-sidebar"/></svg>
+  </button>
   <div class="app-container">
     <!-- Sidebar / Left Panel -->
     <aside class="sidebar">
       <!-- App Branding Header -->
       <div class="sidebar-brand">
-        <div class="brand-logo">
-          <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <linearGradient id="brand-purple-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#A78BFA" />
-                <stop offset="100%" stop-color="#7C3AED" />
-              </linearGradient>
-              <linearGradient id="brand-blue-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#60A5FA" />
-                <stop offset="100%" stop-color="#2563EB" />
-              </linearGradient>
-              <linearGradient id="brand-green-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#34D399" />
-                <stop offset="100%" stop-color="#059669" />
-              </linearGradient>
-              <linearGradient id="brand-yellow-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#FBBF24" />
-                <stop offset="100%" stop-color="#D97706" />
-              </linearGradient>
-              <linearGradient id="brand-red-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#F87171" />
-                <stop offset="100%" stop-color="#DC2626" />
-              </linearGradient>
-            </defs>
-            <path d="M50 15 C50 15, 80 45, 80 65 A30 30 0 1 1 20 65 C20 45, 50 15, 50 15 Z" fill="url(#brand-purple-grad)" opacity="0.85" transform="translate(50, 65) rotate(-28) scale(0.86) translate(-50, -65)" />
-            <path d="M50 15 C50 15, 80 45, 80 65 A30 30 0 1 1 20 65 C20 45, 50 15, 50 15 Z" fill="url(#brand-blue-grad)" opacity="0.85" transform="translate(50, 65) rotate(-14) scale(0.93) translate(-50, -65)" />
-            <path d="M50 15 C50 15, 80 45, 80 65 A30 30 0 1 1 20 65 C20 45, 50 15, 50 15 Z" fill="url(#brand-green-grad)" opacity="0.9" />
-            <path d="M50 15 C50 15, 80 45, 80 65 A30 30 0 1 1 20 65 C20 45, 50 15, 50 15 Z" fill="url(#brand-yellow-grad)" opacity="0.85" transform="translate(50, 65) rotate(14) scale(0.93) translate(-50, -65)" />
-            <path d="M50 15 C50 15, 80 45, 80 65 A30 30 0 1 1 20 65 C20 45, 50 15, 50 15 Z" fill="url(#brand-red-grad)" opacity="0.85" transform="translate(50, 65) rotate(28) scale(0.86) translate(-50, -65)" />
-          </svg>
-        </div>
         <span class="brand-name">plop</span>
       </div>
 
       <div class="sidebar-header">
         <div class="workspace-info">
-          <div class="workspace-icon">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M3 7C3 5.89543 3.89543 5 5 5H10L12 7H19C20.1046 7 21 7.89543 21 9V17C21 18.1046 20.1046 19 19 19H5C3.89543 19 3 18.1046 3 17V7Z" fill="currentColor" fill-opacity="0.2" stroke="currentColor" stroke-width="2"/>
-            </svg>
+          <div class="workspace-icon" id="workspace-icon-display" aria-hidden="true">
+            <svg class="plop-icon" aria-hidden="true"><use href="#icon-space"/></svg>
           </div>
           <div class="workspace-meta">
             <h1 class="workspace-title" id="workspace-title-display">bookmarks</h1>
           </div>
         </div>
         <button id="rename-workspace-btn" class="icon-btn" title="Workspace Settings">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-          </svg>
+          <svg class="plop-icon" aria-hidden="true"><use href="#icon-settings"/></svg>
         </button>
       </div>
+
+      <button id="space-add-item" class="footer-btn space-add-item hidden" type="button" aria-controls="space-context-menu">
+        <svg class="plop-icon" aria-hidden="true"><use href="#icon-plus"/></svg>
+        Add to space
+      </button>
 
       <!-- Scrollable Tree Container -->
       <div class="tree-scroll-container" id="tree-scroll-container">
@@ -88,14 +85,18 @@
 
       <!-- Sidebar Footer Operations -->
       <div class="sidebar-footer">
+        <nav id="space-switcher" class="space-switcher hidden" aria-label="Spaces">
+          <button type="button" id="previous-space" title="Previous space" aria-label="Previous space"><svg class="plop-icon" aria-hidden="true"><use href="#icon-left"/></svg></button>
+          <div id="space-list" class="space-list"></div>
+          <button type="button" id="next-space" title="Next space" aria-label="Next space"><svg class="plop-icon" aria-hidden="true"><use href="#icon-right"/></svg></button>
+          <button type="button" id="new-space" title="New space" aria-label="New space"><svg class="plop-icon" aria-hidden="true"><use href="#icon-plus"/></svg></button>
+        </nav>
         <div class="footer-utility">
           <button id="account-btn" class="utility-btn" title="Account settings">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-              <circle cx="12" cy="7" r="4"/>
-            </svg>
+            <svg class="plop-icon" aria-hidden="true"><use href="#icon-person"/></svg>
             <span id="account-btn-label">Sign In</span>
           </button>
+          <button id="appearance-btn" class="utility-btn" type="button" aria-haspopup="dialog"><svg class="plop-icon" aria-hidden="true"><use href="#icon-settings"/></svg><span>Settings</span></button>
         </div>
       </div>
     </aside>
@@ -103,66 +104,18 @@
     <!-- Main Viewport / Right Panel -->
     <main class="main-viewport">
       <div id="empty-state" class="viewport-card empty-card">
-        <div class="empty-illustrations">
-          <div class="brand-splash">
-            <svg class="splash-logo" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <linearGradient id="splash-purple-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stop-color="#A78BFA" />
-                  <stop offset="100%" stop-color="#7C3AED" />
-                </linearGradient>
-                <linearGradient id="splash-blue-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stop-color="#60A5FA" />
-                  <stop offset="100%" stop-color="#2563EB" />
-                </linearGradient>
-                <linearGradient id="splash-green-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stop-color="#34D399" />
-                  <stop offset="100%" stop-color="#059669" />
-                </linearGradient>
-                <linearGradient id="splash-yellow-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stop-color="#FBBF24" />
-                  <stop offset="100%" stop-color="#D97706" />
-                </linearGradient>
-                <linearGradient id="splash-red-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stop-color="#F87171" />
-                  <stop offset="100%" stop-color="#DC2626" />
-                </linearGradient>
-              </defs>
-              <path d="M50 15 C50 15, 80 45, 80 65 A30 30 0 1 1 20 65 C20 45, 50 15, 50 15 Z" fill="url(#splash-purple-grad)" opacity="0.85" transform="translate(50, 65) rotate(-28) scale(0.86) translate(-50, -65)" />
-              <path d="M50 15 C50 15, 80 45, 80 65 A30 30 0 1 1 20 65 C20 45, 50 15, 50 15 Z" fill="url(#splash-blue-grad)" opacity="0.85" transform="translate(50, 65) rotate(-14) scale(0.93) translate(-50, -65)" />
-              <path d="M50 15 C50 15, 80 45, 80 65 A30 30 0 1 1 20 65 C20 45, 50 15, 50 15 Z" fill="url(#splash-green-grad)" opacity="0.9" />
-              <path d="M50 15 C50 15, 80 45, 80 65 A30 30 0 1 1 20 65 C20 45, 50 15, 50 15 Z" fill="url(#splash-yellow-grad)" opacity="0.85" transform="translate(50, 65) rotate(14) scale(0.93) translate(-50, -65)" />
-              <path d="M50 15 C50 15, 80 45, 80 65 A30 30 0 1 1 20 65 C20 45, 50 15, 50 15 Z" fill="url(#splash-red-grad)" opacity="0.85" transform="translate(50, 65) rotate(28) scale(0.86) translate(-50, -65)" />
-            </svg>
-            <div class="splash-drop sd-1"></div>
-            <div class="splash-drop sd-2"></div>
-            <div class="splash-drop sd-3"></div>
-            <div class="splash-drop sd-4"></div>
-          </div>
+        <div class="empty-illustration" aria-hidden="true">
+          <span></span>
         </div>
         <h2 id="empty-title">Welcome to Plop</h2>
-        <p id="empty-desc">Right-click any folder to add links or sub-folders. Right-click empty space to create a new folder.</p>
-        <div class="quick-tips">
-          <div class="tip-item">
-            <strong>💡 Reorder:</strong> Drag and drop any folder or link to organize it.
-          </div>
-          <div class="tip-item">
-            <strong>🔗 Share:</strong> Right-click a folder → Share to get a public link.
-          </div>
-          <div class="tip-item">
-            <strong>📋 Paste:</strong> Copy a URL then press Cmd/Ctrl+V with a folder selected.
-          </div>
-        </div>
+        <p id="empty-desc">Choose a note or link, or add something to your space.</p>
       </div>
 
       <div id="preview-state" class="viewport-card preview-card hidden">
         <div class="preview-header">
           <div class="preview-header-left">
             <button id="preview-back-btn" class="icon-btn back-btn" title="Back to List">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <line x1="19" y1="12" x2="5" y2="12"/>
-                <polyline points="12 19 5 12 12 5"/>
-              </svg>
+              <svg class="plop-icon" aria-hidden="true"><use href="#icon-back"/></svg>
             </button>
             <img id="active-favicon" class="active-favicon" src="" alt="">
             <span id="active-title" class="active-title-text">Loading Page...</span>
@@ -171,41 +124,28 @@
           <!-- Center: Sleek URL Bar (for Links) / Note Title (for Notes) -->
           <div class="preview-header-center">
             <div id="sleek-url-bar" class="sleek-url-bar">
-              <svg class="url-lock-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-              </svg>
+              <svg class="plop-icon" aria-hidden="true"><use href="#icon-lock"/></svg>
               <span id="active-url">https://example.com</span>
-              <button id="url-bar-copy-btn" class="url-copy-icon-btn" title="Copy URL">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                </svg>
-              </button>
             </div>
             <!-- Note Title Input (shown during note creation or inline editing) -->
-            <input id="note-inline-title-input" class="note-inline-title-input hidden" type="text" placeholder="Note Title...">
+            <input id="note-inline-title-input" aria-label="Note title" maxlength="200" class="note-inline-title-input hidden" type="text" placeholder="Untitled note">
           </div>
 
           <!-- Right: Sleek Action Icons -->
           <div class="preview-actions">
+              <button id="url-bar-copy-btn" type="button" class="icon-btn action-icon-btn" title="Copy" aria-label="Copy">
+                <svg class="plop-icon" aria-hidden="true"><use href="#icon-copy"/></svg>
+              </button>
+
             <!-- Note edit / save / share buttons -->
             <button id="active-note-edit-btn" class="icon-btn action-icon-btn hidden" title="Edit Note">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-              </svg>
+              <svg class="plop-icon" aria-hidden="true"><use href="#icon-edit"/></svg>
             </button>
             <button id="active-note-share-btn" class="icon-btn action-icon-btn hidden" title="Share Note">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
-                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-              </svg>
+              <svg class="plop-icon" aria-hidden="true"><use href="#icon-share"/></svg>
             </button>
-            <button id="active-note-save-btn" class="btn btn-primary btn-sm hidden" title="Save Note (Cmd+S)">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <polyline points="20 6 9 17 4 12"/>
-              </svg>
+            <button id="active-note-save-btn" class="btn btn-primary btn-sm hidden" title="Save note (Ctrl/⌘+Enter)">
+              <svg class="plop-icon" aria-hidden="true"><use href="#icon-check"/></svg>
               <span>Save</span>
             </button>
             <button id="active-note-discard-btn" class="btn btn-secondary btn-sm hidden" title="Discard Changes">
@@ -214,17 +154,10 @@
 
             <!-- Link actions: web/pdf viewer toggle, open in new tab -->
             <button id="preview-toggle-viewer" class="icon-btn action-icon-btn" title="Toggle Web / PDF Viewer">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-                <line x1="16" y1="13" x2="8" y2="13"/>
-                <line x1="16" y1="17" x2="8" y2="17"/>
-              </svg>
+              <svg class="plop-icon" aria-hidden="true"><use href="#icon-file"/></svg>
             </button>
             <a id="active-link-open" href="#" target="_blank" class="icon-btn action-icon-btn" title="Open Link in New Tab">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/>
-              </svg>
+              <svg class="plop-icon" aria-hidden="true"><use href="#icon-external"/></svg>
             </a>
           </div>
         </div>
@@ -238,13 +171,43 @@
             <div id="note-rendered-content" class="note-markdown-body"></div>
             <!-- Inline editor mode -->
             <div id="note-editor-wrapper" class="note-editor-wrapper hidden">
-              <textarea id="note-inline-editor" class="note-inline-editor" placeholder="Type your markdown note here... (Cmd+S / Ctrl+S to save)"></textarea>
+              <div class="note-editor-bar">
+                <button type="button" id="note-format-toggle" aria-expanded="false" aria-controls="note-format-toolbar">Format</button>
+                <button type="button" id="note-preview-toggle" aria-pressed="false" aria-controls="note-live-preview">Preview</button>
+              </div>
+              <div id="note-format-toolbar" class="note-format-toolbar hidden" role="group" aria-label="Markdown formatting">
+                <button type="button" data-format="bold" title="Bold" aria-label="Bold"><strong>B</strong></button>
+                <button type="button" data-format="italic" title="Italic" aria-label="Italic"><em>I</em></button>
+                <button type="button" data-format="underline" title="Underline" aria-label="Underline"><u>U</u></button>
+                <button type="button" data-format="strike" title="Strikethrough" aria-label="Strikethrough"><s>S</s></button>
+                <button type="button" data-format="highlight">Highlight</button>
+                <button type="button" data-format="quote">Quote</button>
+                <button type="button" data-format="code">Inline code</button>
+                <button type="button" data-format="fence">Code block</button>
+                <button type="button" data-format="bullets">Bullets</button>
+                <button type="button" data-format="image">Image</button>
+                <button type="button" id="note-emoji-toggle" aria-expanded="false" aria-controls="note-emojis">Emoji</button>
+                <div id="note-emojis" class="note-emojis hidden" role="group" aria-label="Insert emoji">
+                  <button type="button" data-emoji aria-label="Sparkles">✨</button>
+                  <button type="button" data-emoji aria-label="Light bulb">💡</button>
+                  <button type="button" data-emoji aria-label="Check mark">✅</button>
+                  <button type="button" data-emoji aria-label="Warning">⚠️</button>
+                  <button type="button" data-emoji aria-label="Pushpin">📌</button>
+                  <button type="button" data-emoji aria-label="Heart">❤️</button>
+                  <button type="button" data-emoji aria-label="Rocket">🚀</button>
+                  <button type="button" data-emoji aria-label="Party popper">🎉</button>
+                </div>
+              </div>
+              <div class="note-editor-panes">
+                <textarea id="note-inline-editor" class="note-inline-editor" aria-label="Markdown source" placeholder="Start writing…" spellcheck="false"></textarea>
+                <section id="note-live-preview" class="note-markdown-body note-live-preview" tabindex="0" aria-label="Live preview"></section>
+              </div>
             </div>
           </div>
           
           <!-- Embedded block warning overlay -->
           <div id="iframe-blocked-warning" class="iframe-warning hidden">
-            <div class="warning-icon">🔒</div>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 1 1 8 0v3"/></svg>
             <h3>Embedding Protected by Site</h3>
             <p>This site protects itself from inline embedding via security headers (X-Frame-Options). You can load it using Web Viewer or open it directly in a new tab.</p>
             <div class="warning-actions">
@@ -257,8 +220,56 @@
     </main>
   </div>
 
+  <dialog id="appearance-dialog" class="custom-dialog appearance-dialog" aria-labelledby="appearance-title">
+    <div class="appearance-header">
+      <h2 id="appearance-title">Appearance</h2>
+      <form method="dialog"><button type="submit" class="btn btn-secondary">Done</button></form>
+    </div>
+    <div class="appearance-grid">
+      <form id="appearance-form" class="appearance-form">
+        <div class="form-group">
+          <label for="page-color">Page color</label>
+          <select id="page-color" name="page">
+            <option value="paper">Paper</option>
+            <option value="white">White</option>
+            <option value="black">Black</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="title-font">Title font</label>
+          <select id="title-font" name="title">
+            <option value="display">Display serif</option>
+            <option value="serif">Classic serif</option>
+            <option value="system">System</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="body-font">Body font</label>
+          <select id="body-font" name="body">
+            <option value="sans">Inter</option>
+            <option value="system">System</option>
+            <option value="serif">Classic serif</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="text-size">Text size</label>
+          <select id="text-size" name="size">
+            <option value="small">Small</option>
+            <option value="regular">Regular</option>
+            <option value="large">Large</option>
+          </select>
+        </div>
+        <button type="reset" class="btn btn-secondary appearance-reset">Reset defaults</button>
+      </form>
+      <section class="appearance-sample note-markdown-body" aria-label="Appearance preview">
+        <h2>A page of your own</h2>
+        <p>A little space for the things you want to remember.</p>
+      </section>
+    </div>
+  </dialog>
+
   <!-- Hidden file input for uploading markdown files -->
-  <input type="file" id="markdown-file-input" accept=".md,.markdown,.txt" style="display: none;">
+  <input type="file" id="markdown-file-input" accept=".md,.markdown,.txt" hidden>
 
   <!-- Drop Indicator (floating line shown during drag) -->
   <div id="drop-indicator" class="drop-indicator hidden"></div>
@@ -266,70 +277,40 @@
   <!-- Shared Custom Context Menu using Popover API -->
   <div id="item-context-menu" popover="manual" class="context-menu">
     <button class="menu-item" id="ctx-add-link">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-      </svg>
+      <svg class="plop-icon" aria-hidden="true"><use href="#icon-link"/></svg>
       <span>Add Link</span>
     </button>
     <button class="menu-item" id="ctx-add-note">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-        <polyline points="14 2 14 8 20 8"/>
-        <line x1="12" y1="18" x2="12" y2="12"/>
-        <line x1="9" y1="15" x2="15" y2="15"/>
-      </svg>
+      <svg class="plop-icon" aria-hidden="true"><use href="#icon-note"/></svg>
       <span>New Note</span>
     </button>
     <button class="menu-item" id="ctx-upload-md">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-        <polyline points="17 8 12 3 7 8"/>
-        <line x1="12" y1="3" x2="12" y2="15"/>
-      </svg>
+      <svg class="plop-icon" aria-hidden="true"><use href="#icon-upload"/></svg>
       <span>Upload .md File</span>
     </button>
     <button class="menu-item" id="ctx-add-subfolder">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2zM12 11v6M9 14h6"/>
-      </svg>
+      <svg class="plop-icon" aria-hidden="true"><use href="#icon-folder"/></svg>
       <span>New Sub-folder</span>
     </button>
     <button class="menu-item" id="ctx-share">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
-        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-      </svg>
+      <svg class="plop-icon" aria-hidden="true"><use href="#icon-share"/></svg>
       <span id="ctx-share-label">Share Folder</span>
     </button>
     <button class="menu-item" id="ctx-share-note">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
-        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-      </svg>
+      <svg class="plop-icon" aria-hidden="true"><use href="#icon-share"/></svg>
       <span>Share Note</span>
     </button>
     <button class="menu-item" id="ctx-copy-link">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-      </svg>
+      <svg class="plop-icon" aria-hidden="true"><use href="#icon-copy"/></svg>
       <span>Copy URL</span>
     </button>
     <div class="menu-separator"></div>
     <button class="menu-item" id="ctx-rename">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-      </svg>
+      <svg class="plop-icon" aria-hidden="true"><use href="#icon-edit"/></svg>
       <span id="ctx-rename-label">Edit</span>
     </button>
     <button class="menu-item danger" id="ctx-delete">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <polyline points="3 6 5 6 21 6"/>
-        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-      </svg>
+      <svg class="plop-icon" aria-hidden="true"><use href="#icon-trash"/></svg>
       <span>Delete</span>
     </button>
   </div>
@@ -337,33 +318,20 @@
   <!-- Empty-space context menu (right-click on sidebar background) -->
   <div id="space-context-menu" popover="manual" class="context-menu">
     <button class="menu-item" id="sctx-new-folder">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2zM12 11v6M9 14h6"/>
-      </svg>
+      <svg class="plop-icon" aria-hidden="true"><use href="#icon-folder"/></svg>
       <span>New Folder</span>
     </button>
     <button class="menu-item" id="sctx-add-note">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-        <polyline points="14 2 14 8 20 8"/>
-        <line x1="12" y1="18" x2="12" y2="12"/>
-        <line x1="9" y1="15" x2="15" y2="15"/>
-      </svg>
+      <svg class="plop-icon" aria-hidden="true"><use href="#icon-note"/></svg>
       <span>New Note</span>
     </button>
     <button class="menu-item" id="sctx-upload-md">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-        <polyline points="17 8 12 3 7 8"/>
-        <line x1="12" y1="3" x2="12" y2="15"/>
-      </svg>
+      <svg class="plop-icon" aria-hidden="true"><use href="#icon-upload"/></svg>
       <span>Upload .md File</span>
     </button>
+    <button class="menu-item" id="sctx-add-link"><svg class="plop-icon" aria-hidden="true"><use href="#icon-link"/></svg><span>Add Link</span></button>
     <button class="menu-item" id="sctx-paste-link">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-      </svg>
+      <svg class="plop-icon" aria-hidden="true"><use href="#icon-copy"/></svg>
       <span>Paste Link</span>
     </button>
   </div>
@@ -412,29 +380,34 @@
   <!-- Rename Workspace Dialog -->
   <dialog id="workspace-dialog" class="custom-dialog">
     <form id="workspace-form">
-      <h3>Workspace Settings</h3>
+      <h3 id="workspace-dialog-title">Space settings</h3>
       
       <div class="form-group">
-        <label for="workspace-title-input">Workspace Title</label>
-        <input type="text" id="workspace-title-input" required autocomplete="off" placeholder="My Bookmarks">
+        <label for="workspace-title-input">Space name</label>
+        <input type="text" id="workspace-title-input" maxlength="50" required autocomplete="off" placeholder="My Bookmarks">
       </div>
 
       <div class="form-group">
         <label for="workspace-author-input">Your Name (Author)</label>
-        <input type="text" id="workspace-author-input" placeholder="Vivek" autocomplete="off">
+        <input type="text" id="workspace-author-input" maxlength="100" placeholder="Vivek" autocomplete="off">
       </div>
 
       <div class="form-group">
-        <label>Workspace Theme Color</label>
+        <label for="workspace-icon-input">Space icon</label>
+        <input type="text" id="workspace-icon-input" maxlength="32" placeholder="◇" autocomplete="off">
+      </div>
+
+      <div class="form-group">
+        <label>Space color</label>
         <div class="theme-color-picker" id="theme-color-picker">
-          <button type="button" class="color-dot charcoal" data-color="charcoal" title="Charcoal"></button>
-          <button type="button" class="color-dot teal" data-color="teal" title="Teal"></button>
-          <button type="button" class="color-dot blue" data-color="blue" title="Blue"></button>
-          <button type="button" class="color-dot purple" data-color="purple" title="Purple"></button>
-          <button type="button" class="color-dot amber" data-color="amber" title="Amber"></button>
-          <button type="button" class="color-dot pink" data-color="pink" title="Pink"></button>
-          <button type="button" class="color-dot red" data-color="red" title="Red"></button>
-          <button type="button" class="color-dot orange" data-color="orange" title="Orange"></button>
+          <button type="button" class="color-dot" data-color="charcoal" data-space-theme="charcoal" title="Charcoal"></button>
+          <button type="button" class="color-dot" data-color="teal" data-space-theme="teal" title="Teal"></button>
+          <button type="button" class="color-dot" data-color="blue" data-space-theme="blue" title="Blue"></button>
+          <button type="button" class="color-dot" data-color="purple" data-space-theme="purple" title="Purple"></button>
+          <button type="button" class="color-dot" data-color="amber" data-space-theme="amber" title="Amber"></button>
+          <button type="button" class="color-dot" data-color="pink" data-space-theme="pink" title="Pink"></button>
+          <button type="button" class="color-dot" data-color="red" data-space-theme="red" title="Red"></button>
+          <button type="button" class="color-dot" data-color="orange" data-space-theme="orange" title="Orange"></button>
         </div>
       </div>
 

@@ -20,23 +20,25 @@ service cloud.firestore {
     function isValidWorkspace(data) {
       return data.keys().hasAll(['id', 'ownerId', 'title', 'authorName']) &&
              data.keys().hasOnly(['id', 'ownerId', 'title', 'authorName',
-                                  'themeColor', 'childrenIds', 'createdAt']) &&
+                                  'themeColor', 'childrenIds', 'createdAt', 'icon']) &&
              isValidString(data.id, 36, 36) &&
              isValidString(data.ownerId, 20, 128) &&
              isValidString(data.title, 1, 50) &&
              isValidString(data.authorName, 0, 100) &&
              (!('childrenIds' in data) ||
               (data.childrenIds is list && data.childrenIds.size() <= 500)) &&
-             (!('themeColor' in data) || isValidString(data.themeColor, 1, 30));
+             (!('themeColor' in data) || isValidString(data.themeColor, 1, 30)) &&
+             (!('icon' in data) || isValidString(data.icon, 1, 32));
     }
 
     function isValidWorkspaceUpdate(data) {
       let changed = request.resource.data.diff(resource.data).affectedKeys();
       return !changed.hasAny(['ownerId', 'id', 'createdAt']) &&
-             changed.hasOnly(['title', 'authorName', 'childrenIds', 'themeColor']) &&
+             changed.hasOnly(['title', 'authorName', 'childrenIds', 'themeColor', 'icon']) &&
              (!changed.hasAll(['title'])      || isValidString(data.title, 1, 50)) &&
              (!changed.hasAll(['authorName']) || isValidString(data.authorName, 0, 100)) &&
              (!changed.hasAll(['themeColor']) || isValidString(data.themeColor, 1, 30)) &&
+             (!('icon' in data) || isValidString(data.icon, 1, 32)) &&
              (!changed.hasAll(['childrenIds']) ||
               (data.childrenIds is list && data.childrenIds.size() <= 500));
     }
