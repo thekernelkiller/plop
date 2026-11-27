@@ -1,3 +1,4 @@
+import { saveDocument, deleteDocument, listDocuments, previewDocument, downloadBlob } from "./documents.js";
 import { formatMarkdown, renderMarkdown } from "./markdown.js";
 import {
   signInAnonymously,
@@ -224,7 +225,13 @@ const sleekUrlBar          = document.getElementById("sleek-url-bar");
 const urlBarCopyBtn        = document.getElementById("url-bar-copy-btn");
 const noteInlineTitleInput = document.getElementById("note-inline-title-input");
 const noteEditorWrapper    = document.getElementById("note-editor-wrapper");
-const markdownFileInput    = document.getElementById("markdown-file-input");
+const documentFileInput = document.getElementById("document-file-input");
+const localFileViewer = document.getElementById("local-file-viewer");
+const localFileContent = document.getElementById("local-file-content");
+const localFileDownload = document.getElementById("local-file-download");
+const localFileRemove = document.getElementById("local-file-remove");
+let localDocuments = new Map();
+let documentPreview;
 const notePreviewContainer = document.getElementById("note-preview-container");
 const noteRenderedContent  = document.getElementById("note-rendered-content");
 const noteInlineEditor     = document.getElementById("note-inline-editor");
@@ -268,6 +275,7 @@ onAuthStateChanged(auth, async (user) => {
       previewIframe.src = "about:blank";
       treeRoot.textContent = "Loading your spaces…";
       spaceSwitcher.classList.add("hidden");
+  spaceOrderButton.classList.add("hidden");
       addToSpace.classList.add("hidden");
       document.getElementById("rename-workspace-btn").classList.add("hidden");
       showEmptyState("Welcome to Plop", "Choose a note or link, or add something to your space.");
@@ -344,11 +352,67 @@ async function createWorkspace(title, authorName, themeColor, icon) {
   return space;
 }
 
+const spaceOrderButton = document.getElementById("space-order-btn");
+const spaceOrderDialog = document.getElementById("space-order-dialog");
+const spaceOrderList = document.getElementById("space-order-list");
+
+function spaceOrderKey() {
+  return `plop.space-order:${currentUser.uid}`;
+}
+
+function applySpaceOrder() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(spaceOrderKey()));
+    if (!Array.isArray(saved)) return;
+    const positions = new Map(saved.map((id, index) => [id, index]));
+    spaces.sort((a, b) => (positions.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (positions.get(b.id) ?? Number.MAX_SAFE_INTEGER));
+  } catch {}
+}
+
+function renderSpaceOrder(focusId, focusDirection) {
+  spaceOrderList.replaceChildren();
+  spaces.forEach((space, index) => {
+    const row = document.createElement("li");
+    const name = document.createElement("span");
+    name.textContent = space.title;
+    row.append(name);
+    for (const [direction, label, icon] of [[-1, "up", "left"], [1, "down", "right"]]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "icon-btn";
+      button.innerHTML = renderIcon(icon);
+      button.setAttribute("aria-label", `Move ${space.title} ${label}`);
+      button.disabled = !spaces[index + direction];
+      button.addEventListener("click", () => {
+        [spaces[index], spaces[index + direction]] = [spaces[index + direction], spaces[index]];
+        try {
+          localStorage.setItem(spaceOrderKey(), JSON.stringify(spaces.map((entry) => entry.id)));
+        } catch {
+          showToast("This browser could not remember your space order.", "error");
+        }
+        renderSpaces();
+        renderSpaceOrder(space.id, direction);
+      });
+      row.append(button);
+      if (space.id === focusId && !button.disabled && (direction === focusDirection ||
+          !spaces[index + focusDirection])) queueMicrotask(() => button.focus());
+    }
+    spaceOrderList.append(row);
+  });
+}
+
+spaceOrderButton.addEventListener("click", () => {
+  renderSpaceOrder();
+  spaceOrderDialog.showModal();
+});
+
 function readSpaces(snapshot) {
   const previous = spaces;
   spaces = snapshot.docs.map((entry) => ({ ...entry.data(), id: entry.id }))
     .sort((a, b) => (a.createdAt?.seconds ?? Infinity) - (b.createdAt?.seconds ?? Infinity) ||
       a.id.localeCompare(b.id));
+  applySpaceOrder();
+  if (spaceOrderDialog.open) renderSpaceOrder();
   if (previous.length !== spaces.length || spaces.some((space, index) => {
     const old = previous[index];
     return space.id !== old.id || space.title !== old.title || space.icon !== old.icon || space.themeColor !== old.themeColor;
@@ -356,6 +420,7 @@ function readSpaces(snapshot) {
 }
 
 function renderSpaces() {
+  spaceOrderButton.classList.toggle("hidden", spaces.length < 2 || isSharedView);
   const index = spaces.findIndex((space) => space.id === activeWorkspaceId);
   const hadFocus = spaceList.contains(document.activeElement);
   spaceList.replaceChildren();
@@ -454,6 +519,13 @@ function loadWorkspace(wsId) {
   sharedRootFolderId = null;
   sharedFolderData = null;
   activeWorkspaceId = wsId;
+  localDocuments = new Map();
+  const owner = currentUser.uid;
+  listDocuments(owner, wsId).then((files) => {
+    if (activeWorkspaceId !== wsId || currentUser?.uid !== owner || isSharedView) return;
+    for (const file of files) if (!localDocuments.has(file.id)) localDocuments.set(file.id, file);
+    renderTree(true);
+  }).catch((error) => console.warn("Local documents unavailable:", error));
   activeWorkspace = spaces.find((entry) => entry.id === wsId);
   workspaceItems = Object.create(null);
   selectedItemId = null;
@@ -529,6 +601,7 @@ async function loadSharedFolderView(folderId) {
 
   unsubscribeSpaces?.();
   spaceSwitcher.classList.add("hidden");
+  spaceOrderButton.classList.add("hidden");
   addToSpace.classList.add("hidden");
   isSharedView       = true;
   sharedRootFolderId = folderId;
@@ -659,7 +732,7 @@ function renderTree(isOwner) {
 
   treeRoot.innerHTML = "";
 
-  if (selectedItemId && !workspaceItems[selectedItemId]) {
+  if (selectedItemId && !workspaceItems[selectedItemId] && !localDocuments.has(selectedItemId)) {
     selectedItemId = null;
   }
 
@@ -696,7 +769,7 @@ function renderTree(isOwner) {
   if (!activeWorkspace) return;
 
   const rootIds = activeWorkspace.childrenIds || [];
-  if (rootIds.length === 0) {
+  if (rootIds.length === 0 && !localDocuments.size) {
     if (!isEditingNote()) showEmptyState(activeWorkspace.title, "Add a note, link, or folder to get started.");
     return;
   }
@@ -708,7 +781,8 @@ function renderTree(isOwner) {
     }
   });
 
-  if (isEditingNote()) return;
+  appendLocalDocuments(treeRoot, "root", 0);
+  if (isEditingNote() || localDocuments.has(selectedItemId)) return;
 
   if (selectedItemId && workspaceItems[selectedItemId]) {
     const selectedItem = workspaceItems[selectedItemId];
@@ -720,6 +794,52 @@ function renderTree(isOwner) {
   } else {
     emptyState.classList.remove("hidden");
     previewState.classList.add("hidden");
+  }
+}
+
+function setLinkIcon(element, address) {
+  element.innerHTML = renderIcon("link");
+  if (!isValidUrl(address)) return;
+  const url = new URL("/favicon.ico", address);
+  if (location.protocol === "https:" && url.protocol !== "https:") return;
+  const image = document.createElement("img");
+  image.alt = "";
+  image.width = image.height = 15;
+  image.className = "site-favicon";
+  image.referrerPolicy = "no-referrer";
+  image.addEventListener("load", () => {
+    image.classList.add("icon-loaded");
+    element.querySelector(".plop-icon")?.classList.add("hidden");
+  }, { once: true });
+  image.addEventListener("error", () => image.remove(), { once: true });
+  element.append(image);
+  image.src = url.href;
+}
+
+function appendLocalDocuments(container, parent, depth) {
+  for (const file of localDocuments.values()) {
+    const actualParent = workspaceItems[file.parent]?.type === "folder" ? file.parent : "root";
+    if (actualParent !== parent) continue;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `tree-item local-file-row${selectedItemId === file.id ? " selected" : ""}`;
+    button.style.setProperty("--depth", depth);
+    button.title = `${file.title} · This device only`;
+    button.innerHTML = renderIcon("file");
+    const title = document.createElement("span");
+    title.className = "tree-item-title";
+    title.textContent = file.title;
+    const tag = document.createElement("span");
+    tag.className = "local-file-tag";
+    tag.textContent = file.format.toUpperCase();
+    button.append(title, tag);
+    button.addEventListener("click", () => {
+      if (!canLeaveNote()) return;
+      selectedItemId = file.id;
+      showPreviewState(file);
+      renderTree(true);
+    });
+    container.append(button);
   }
 }
 
@@ -771,7 +891,7 @@ function renderNode(item, depth, isOwner, ancestors = new Set()) {
     iconEl.innerHTML = renderIcon("note");
   } else {
     iconEl.className = "link-favicon-wrap";
-    iconEl.innerHTML = renderIcon("link");
+    setLinkIcon(iconEl, item.url);
   }
 
   // ── Title ──
@@ -868,6 +988,8 @@ function renderNode(item, depth, isOwner, ancestors = new Set()) {
       }
     });
 
+    if (isOwner) appendLocalDocuments(childrenContainer, item.id, depth + 1);
+
     el.after(childrenContainer);
     // Return a wrapper so both el + childrenContainer are injected together
     const wrap = document.createDocumentFragment();
@@ -932,6 +1054,7 @@ function setButtonLoading(button, isLoading, loadingText = "Saving...") {
 }
 
 function showEmptyState(title, desc) {
+  closeDocumentPreview();
   noteEditorWrapper.classList.add("hidden");
   appContainer.classList.remove("preview-active", "mobile-list-open", "mobile-canvas-open");
   syncSidebarToggle();
@@ -960,7 +1083,59 @@ function setPreviewIframeSrc(url, mode) {
   if (previewIframe.getAttribute("src") !== src) previewIframe.src = src;
 }
 
+function closeDocumentPreview() {
+  documentPreview?.abort();
+  documentPreview = null;
+  localFileViewer.classList.add("hidden");
+  localFileDownload.classList.add("hidden");
+  localFileRemove.classList.add("hidden");
+  previewState.classList.remove("viewing-document");
+}
+
+function showLocalFile(file) {
+  previewState.classList.add("viewing-document");
+  activeTitle.textContent = file.title;
+  previewIframe.src = "about:blank";
+  for (const element of [previewIframe, notePreviewContainer, sleekUrlBar, noteInlineTitleInput,
+    activeLinkOpen, previewToggleViewer, activeNoteEditBtn, activeNoteSaveBtn, activeNoteDiscardBtn,
+    activeNoteShareBtn, urlBarCopyBtn]) element.classList.add("hidden");
+  localFileViewer.classList.remove("hidden");
+  localFileDownload.classList.remove("hidden");
+  localFileRemove.classList.remove("hidden");
+  localFileContent.textContent = "Opening file…";
+  documentPreview = new AbortController();
+  const { signal } = documentPreview;
+  previewDocument(file, localFileContent, signal).catch((error) => {
+    if (signal.aborted) return;
+    console.warn("Could not display local file:", error);
+    localFileContent.textContent = "Preview unavailable. You can still download the original file.";
+  });
+}
+
+localFileDownload.addEventListener("click", () => {
+  if (currentPreviewItem?.type === "document") downloadBlob(currentPreviewItem.blob, currentPreviewItem.title);
+});
+
+localFileRemove.addEventListener("click", async () => {
+  const file = currentPreviewItem;
+  if (file?.type !== "document" || !window.confirm(`Remove “${file.title}” from this device?`)) return;
+  try {
+    await deleteDocument(file.id);
+    localDocuments.delete(file.id);
+    if (currentPreviewItem?.id === file.id) {
+      selectedItemId = null;
+      currentPreviewItem = null;
+      showEmptyState(activeWorkspace?.title || "Plop", "Choose a note or link, or add something to this space.");
+    }
+    renderTree(true);
+  } catch (error) {
+    showToast(error.message || "Could not remove the file.", "error");
+  }
+});
+
 function showPreviewState(item) {
+  closeDocumentPreview();
+  urlBarCopyBtn.classList.remove("hidden");
   if (item.type === "note" && !isSharedView) {
     const draft = readNoteDraft(noteDraftKey(activeWorkspaceId, item.id));
     if (draft) item = { ...item, ...draft, title: draft.title.trim() || "Untitled Note.md" };
@@ -978,6 +1153,10 @@ function showPreviewState(item) {
   emptyState.classList.add("hidden");
   previewState.classList.remove("hidden");
   if (iframeBlockedWarn) iframeBlockedWarn.classList.add("hidden");
+  if (item.type === "document") {
+    showLocalFile(item);
+    return;
+  }
 
   if (item.type === "note") {
     // Show Markdown Note View
@@ -1038,6 +1217,7 @@ function showPreviewState(item) {
 
 function openInlineNoteEditor(noteId = null, parentId = "root") {
   if (isSharedView || !activeWorkspace || !canLeaveNote()) return;
+  closeDocumentPreview();
   previewState.classList.add("viewing-note", "editing-note");
   appContainer.classList.add("preview-active");
   appContainer.classList.remove("mobile-list-open", "mobile-canvas-open");
@@ -1485,6 +1665,7 @@ document.getElementById("preview-back-btn")?.addEventListener("click", () => {
 // ─────────────────────────────────────────────────────────────────────
 
 treeRoot.addEventListener("dragover", (e) => {
+  if (!isSharedView && e.dataTransfer?.types.includes("Files")) e.preventDefault();
   if (!draggedItemId) return;
   e.preventDefault();
 
@@ -1528,26 +1709,13 @@ treeRoot.addEventListener("dragover", (e) => {
 treeRoot.addEventListener("drop", async (e) => {
   e.preventDefault();
 
-  // Handle desktop file drop (.md, .markdown, .txt)
-  if (e.dataTransfer?.files?.length > 0) {
-    const file = e.dataTransfer.files[0];
-    const isMd = file.name.endsWith(".md") || file.name.endsWith(".markdown") || file.name.endsWith(".txt");
-    if (isMd) {
-      const targetFolderId = currentDropTarget?.id && workspaceItems[currentDropTarget.id]?.type === "folder"
-        ? currentDropTarget.id : "root";
-      clearDropVisuals();
-
-      const reader = new FileReader();
-      reader.onload = async (evt) => {
-        try {
-          await createNoteItem(file.name, evt.target.result || "", targetFolderId);
-        } catch (err) {
-          console.error("Drop markdown file failed:", err);
-        }
-      };
-      reader.readAsText(file);
-      return;
-    }
+  const file = e.dataTransfer?.files?.[0];
+  if (file) {
+    const rowId = e.target.closest(".tree-item")?.dataset.id;
+    const parent = workspaceItems[rowId]?.type === "folder" ? rowId : "root";
+    clearDropVisuals();
+    await importFile(file, parent);
+    return;
   }
 
   if (!currentDropTarget || !draggedItemId) return;
@@ -1683,7 +1851,7 @@ function showContextMenu(itemId, clientX, clientY, itemType) {
   // Visibility of menu items based on item type and ownership
   document.getElementById("ctx-add-link")?.classList.toggle("hidden",      !isFolder);
   document.getElementById("ctx-add-note")?.classList.toggle("hidden",      !isFolder);
-  document.getElementById("ctx-upload-md")?.classList.toggle("hidden",     !isFolder);
+  document.getElementById("ctx-upload-file")?.classList.toggle("hidden",     !isFolder);
   document.getElementById("ctx-add-subfolder")?.classList.toggle("hidden", !isFolder);
   document.getElementById("ctx-share")?.classList.toggle("hidden",        !isFolder);
   document.getElementById("ctx-share-note")?.classList.toggle("hidden",   !isNote);
@@ -1785,10 +1953,10 @@ document.getElementById("sctx-add-note")?.addEventListener("click", () => {
   openInlineNoteEditor(null, "root");
 });
 
-document.getElementById("sctx-upload-md")?.addEventListener("click", () => {
+document.getElementById("sctx-upload-file")?.addEventListener("click", () => {
   spaceContextMenu.hidePopover();
   noteDialogParentId = "root";
-  markdownFileInput.click();
+  documentFileInput.click();
 });
 
 document.getElementById("sctx-add-link").addEventListener("click", () => {
@@ -1798,22 +1966,6 @@ document.getElementById("sctx-add-link").addEventListener("click", () => {
   document.getElementById("link-title-input").value = "";
   document.getElementById("link-dialog-title").textContent = "Add Link";
   linkDialog.showModal();
-});
-
-document.getElementById("sctx-paste-link").addEventListener("click", async () => {
-  spaceContextMenu.hidePopover();
-  try {
-    const text = await navigator.clipboard.readText();
-    if (text && isValidUrl(text)) {
-      linkDialogParentId = selectedItemId && workspaceItems[selectedItemId]?.type === "folder"
-        ? selectedItemId : "root";
-      document.getElementById("link-url-input").value   = text;
-      document.getElementById("link-title-input").value = "";
-      document.getElementById("link-dialog-title").textContent = "Add Link";
-      linkDialog.showModal();
-      document.getElementById("link-title-input").focus();
-    }
-  } catch { /* clipboard denied */ }
 });
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1838,11 +1990,11 @@ document.getElementById("ctx-add-note")?.addEventListener("click", () => {
   openInlineNoteEditor(null, parentId);
 });
 
-document.getElementById("ctx-upload-md")?.addEventListener("click", () => {
+document.getElementById("ctx-upload-file")?.addEventListener("click", () => {
   itemContextMenu.hidePopover();
   noteDialogParentId = contextMenuTargetId && workspaceItems[contextMenuTargetId]?.type === "folder"
     ? contextMenuTargetId : "root";
-  markdownFileInput.click();
+  documentFileInput.click();
 });
 
 document.getElementById("ctx-add-subfolder").addEventListener("click", () => {
@@ -2202,38 +2354,58 @@ function writeNoteItem(workspaceId, note) {
   return batch.commit();
 }
 
-async function createNoteItem(title, content, parentId) {
-  const noteDoc = buildNoteItem(generateUUID(), title, content || "", parentId);
-  await writeNoteItem(activeWorkspaceId, noteDoc);
-  return { noteId: noteDoc.id, noteDoc };
+async function importFile(file, parent) {
+  if (!activeWorkspace || isSharedView || !canLeaveNote()) return;
+  const originSpace = activeWorkspaceId;
+  const owner = currentUser.uid;
+  const inSpace = () => activeWorkspaceId === originSpace && currentUser?.uid === owner && !isSharedView;
+  const importParent = workspaceItems[parent]?.type === "folder" ? parent : "root";
+  const format = file.name.split(".").pop()?.toLowerCase();
+  const title = file.name.slice(0, 200);
+  const toast = showToast(`Importing “${title}”…`, "loading", 0);
+  try {
+    if (["pdf", "docx"].includes(format)) {
+      if (file.size > 25 * 1024 * 1024) throw new Error("Choose a PDF or DOCX file under 25 MB.");
+      const item = { id: generateUUID(), type: "document", owner, space: originSpace, parent: importParent, title, format, blob: file };
+      await saveDocument(item);
+      if (inSpace()) {
+        localDocuments.set(item.id, item);
+        if (!isEditingNote()) {
+          selectedItemId = item.id;
+          showPreviewState(item);
+        }
+        renderTree(true);
+      }
+      showToast("File saved on this device.", "success");
+    } else if (["md", "markdown", "txt"].includes(format)) {
+      if (file.size > 400000) throw new Error("This text file is too large to import as a note.");
+      const content = await file.text();
+      if (content.length > 100000) throw new Error("This text file is too large to import as a note.");
+      if (!inSpace()) throw new Error("Return to the original space and try again.");
+      const note = buildNoteItem(generateUUID(), title, content, importParent);
+      await writeNoteItem(originSpace, note);
+      if (inSpace()) {
+        workspaceItems[note.id] = note;
+        if (!isEditingNote()) {
+          selectedItemId = note.id;
+          showPreviewState(note);
+        }
+      }
+      showToast("Imported as a note.", "success");
+    } else {
+      throw new Error("Choose an MD, TXT, PDF, or DOCX file.");
+    }
+  } catch (error) {
+    showToast(error.message || "Could not import this file.", "error");
+  } finally {
+    toast.remove();
+  }
 }
 
-markdownFileInput?.addEventListener("change", (e) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
-
-  const toast = showToast(`Uploading "${file.name}"...`, "loading", 0);
-
-  const reader = new FileReader();
-  reader.onload = async (evt) => {
-    const text  = evt.target.result || "";
-    const title = file.name || "Untitled Note.md";
-    try {
-      const { noteId: newNoteId, noteDoc } = await createNoteItem(title, text, noteDialogParentId);
-      // Optimistically add to local cache so preview works immediately (before snapshot fires)
-      workspaceItems[newNoteId] = noteDoc;
-      selectedItemId = newNoteId;
-      toast.remove();
-      showToast(`Uploaded "${title}" successfully!`, "success");
-      showPreviewState(noteDoc);
-    } catch (err) {
-      toast.remove();
-      console.error("Upload markdown failed:", err);
-      showToast("Failed to upload file: " + err.message, "error");
-    }
-    markdownFileInput.value = "";
-  };
-  reader.readAsText(file);
+documentFileInput.addEventListener("change", (event) => {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (file) importFile(file, noteDialogParentId);
 });
 
 // ─────────────────────────────────────────────────────────────────────
@@ -2455,6 +2627,58 @@ function openNoteShareDialog(noteId) {
   updateNoteShareLinkSection(isShared, noteId);
   noteShareDialog.showModal();
 }
+
+function noteFilename(title) {
+  return (title || "Untitled note").replace(/\.(md|markdown|txt)$/i, "")
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "-").trim() || "Untitled note";
+}
+
+document.getElementById("note-export").addEventListener("click", async (event) => {
+  const format = event.target.closest("[data-export]")?.dataset.export;
+  const note = workspaceItems[contextMenuTargetId];
+  if (!format || note?.type !== "note") return;
+  const draft = readNoteDraft(noteDraftKey(activeWorkspaceId, note.id));
+  const source = draft?.content ?? note.content ?? "";
+  const filename = noteFilename(draft?.title || note.title);
+  if (format === "md") {
+    downloadBlob(new Blob([source], { type: "text/markdown;charset=utf-8" }), `${filename}.md`);
+    return;
+  }
+  const output = document.createElement("article");
+  output.className = "note-markdown-body note-export-output";
+  document.body.append(output);
+  const rendered = renderMarkdown(output, source);
+  if (format === "txt") {
+    const plainText = output.innerText.trim();
+    output.remove();
+    downloadBlob(new Blob([plainText + "\n"], { type: "text/plain;charset=utf-8" }), `${filename}.txt`);
+    return;
+  }
+
+  noteShareDialog.close();
+  const title = draft?.title || note.title;
+  if (title && (output.firstElementChild?.tagName !== "H1" ||
+      output.firstElementChild.textContent.trim() !== title.trim())) {
+    const heading = document.createElement("h1");
+    heading.textContent = title;
+    output.prepend(heading);
+  }
+  await Promise.race([rendered, new Promise((resolve) => setTimeout(resolve, 1800))]);
+  for (const image of output.querySelectorAll("img")) image.loading = "eager";
+  await Promise.race([
+    Promise.allSettled([document.fonts.ready, ...[...output.querySelectorAll("img")].map((image) => image.decode())]),
+    new Promise((resolve) => setTimeout(resolve, 1800))
+  ]);
+  const previousTitle = document.title;
+  document.body.classList.add("printing-note");
+  document.title = filename;
+  window.addEventListener("afterprint", () => {
+    output.remove();
+    document.body.classList.remove("printing-note");
+    document.title = previousTitle;
+  }, { once: true });
+  window.print();
+});
 
 function updateNoteShareLinkSection(isShared, noteId) {
   const section = document.getElementById("note-share-link-section");
